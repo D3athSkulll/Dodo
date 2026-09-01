@@ -101,3 +101,20 @@ section before submission.
 - Removed `rust-toolchain.toml` added in Commit 1: pinning `1.98.0` resolved to
   the MSVC host on a Windows box whose working toolchain is GNU, breaking the
   build. Version is now documented in the README; Docker pins via `rust:1.98`.
+
+**Commit 3 — config, errors, bootstrap, health**
+- `Config::from_env()` hand-rolled, ~60 lines, one typed error with the offending
+  key name. No config framework.
+- One `ApiError` enum → one JSON shape `{"error":{"code","message","details"?}}`.
+  `Internal` logs the real cause and returns an opaque body. Validation is 422
+  (request parsed, semantically rejected), not 400.
+- `/healthz` = liveness, never touches the DB. `/readyz` = runs `SELECT 1`, 503
+  if the DB is down. Verified: with Postgres stopped, `/healthz` stays 200 and
+  `/readyz` returns 503.
+- `request_id` middleware: reuse an incoming `x-request-id` or mint a UUID v7;
+  put it on the tracing span and echo it on the response. Stays in logs only.
+- Migrations run via `sqlx::migrate!()` on startup; graceful shutdown on
+  Ctrl-C / SIGTERM.
+- `readyz` uses an unchecked `sqlx::query("SELECT 1")` so `cargo build` needs no
+  database. Compile-time-checked `query!` + a committed `.sqlx` cache come in
+  with the first real queries (Commit 5).

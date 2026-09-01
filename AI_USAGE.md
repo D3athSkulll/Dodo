@@ -39,3 +39,9 @@ Delete before submission.
 - Candidate decisions so far (for section 2): (1) no `shared` crate; (2) `TEXT +
   CHECK` over PG `ENUM` for state columns; (3) DB-level cross-tenant integrity
   (composite FK) rather than trusting `WHERE business_id` everywhere.
+- **Commit 3:** chose an unchecked `sqlx::query` for the `/readyz` `SELECT 1` so
+  the build needs no database yet. AI's plan wanted compile-time-checked queries
+  from the start; deferring that (with a committed `.sqlx` cache) to the first
+  real queries in Commit 5 keeps every build DB-free until then. Verified the
+  service manually: migrations run on startup, `/healthz` stays up with Postgres
+  down, `/readyz` flips to 503.

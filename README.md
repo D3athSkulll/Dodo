@@ -7,8 +7,8 @@ processor, and the business is notified of state changes via signed webhooks.
 Built for the Dodo Payments backend take-home. Design rationale lives in
 [`DESIGN.md`](DESIGN.md); AI-tool usage is disclosed in [`AI_USAGE.md`](AI_USAGE.md).
 
-> **Status:** scaffolding (Commit 1). Run instructions and the curl walkthrough
-> below are filled in as the service comes up (Commits 3–11).
+> **Status:** in progress. The run instructions and curl walkthrough below grow
+> as the service comes up.
 
 ## Run
 
@@ -17,14 +17,24 @@ Built for the Dodo Payments backend take-home. Design rationale lives in
 Toolchain: Rust 1.98 stable (any host). No `rust-toolchain.toml` — cargo uses
 your default stable; the Docker build pins via the `rust:1.98` base image.
 
-### Local Postgres, no Docker (for verifying migrations now)
+### Local Postgres, no Docker
 
 ```bash
 psql -U postgres -f scripts/db-setup.sql          # create role + db `dodo`
-DATABASE_URL=postgres://dodo:dodo@localhost:5432/dodo ./scripts/migrate.sh
+cp .env.example .env                              # then set DATABASE_URL host to localhost
+set -a && . ./.env && set +a
+cargo run -p invoice-service                      # runs migrations on startup, then serves
 ```
 
-Once the app wires `sqlx::migrate!()` (Commit 3) this runs on startup instead.
+Check it:
+
+```bash
+curl -i localhost:8080/healthz     # 200 while the process is up
+curl -i localhost:8080/readyz      # 200 only while Postgres is reachable
+```
+
+`scripts/migrate.sh` still applies migrations with plain `psql` if you want the
+schema without starting the app.
 
 ## API walkthrough (curl)
 
