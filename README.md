@@ -12,13 +12,19 @@ Built for the Dodo Payments backend take-home. Design rationale lives in
 
 ## Run
 
-<!-- TODO (Commit 11): one-command run -->
+<!-- TODO (Commit 11): one-command `docker compose up` -->
+
+Toolchain: Rust 1.98 stable (any host). No `rust-toolchain.toml` — cargo uses
+your default stable; the Docker build pins via the `rust:1.98` base image.
+
+### Local Postgres, no Docker (for verifying migrations now)
+
 ```bash
-docker compose up
+psql -U postgres -f scripts/db-setup.sql          # create role + db `dodo`
+DATABASE_URL=postgres://dodo:dodo@localhost:5432/dodo ./scripts/migrate.sh
 ```
 
-The seeded API key is printed once by the `seed` service — copy it from that
-service's logs.
+Once the app wires `sqlx::migrate!()` (Commit 3) this runs on startup instead.
 
 ## API walkthrough (curl)
 

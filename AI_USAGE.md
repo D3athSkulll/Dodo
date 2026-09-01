@@ -18,3 +18,24 @@ Used **Claude Sonnet 5** for improving the original plan based on ChatGPT's revi
 ## 3. One thing the AI got wrong, or that I had to correct
 
 AI made the issue in building the workspace. The system has Windows MSVC toolchain along with GNU toolchain. The issue is solved by using custom runs.
+
+---
+
+## Build notes (raw — for me to fold into the sections above, not final)
+
+Delete before submission.
+
+- **Commit 1:** AI added `rust-toolchain.toml` pinning `1.98.0`. On this machine
+  that resolved to the MSVC host toolchain (default host) while the working one
+  is GNU, so `cargo build` failed on the linker. **Commit 2:** removed the file —
+  cargo now uses the machine default; Rust version is documented in the README
+  and pinned for Docker via the `rust:1.98` image. Verified the workspace builds
+  and tests pass under `stable-x86_64-pc-windows-gnu`.
+- **Commit 2:** no Docker on the box and the local Postgres superuser password
+  was unknown, so the migration was verified against a throwaway PG18 cluster
+  (`initdb` in a temp dir, trust auth, port 5433). Confirmed all 9 tables + all
+  indexes create, the cross-tenant FK rejects a mismatched customer, and the
+  partial unique index rejects a 2nd pending payment attempt.
+- Candidate decisions so far (for section 2): (1) no `shared` crate; (2) `TEXT +
+  CHECK` over PG `ENUM` for state columns; (3) DB-level cross-tenant integrity
+  (composite FK) rather than trusting `WHERE business_id` everywhere.

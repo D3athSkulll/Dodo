@@ -64,3 +64,40 @@ full SSRF hardening. -->
 <!-- TODO (Commit 12): top 3 — observability (metrics, OTLP traces, alerting on
 stuck-pending count and webhook exhaustion rate); rate limiting + abuse controls;
 audit log + admin tooling. Honourable mention: full SSRF hardening, refunds. -->
+
+---
+
+## Build notes (raw — turn into prose later, not final)
+
+Short bullets logged per commit as decisions are actually made. Delete this
+section before submission.
+
+**Commit 1 — scaffold**
+- Two crates, no `shared`: only shared types are a tiny PSP request/response pair.
+- Deps pinned once in the workspace table; crates enable them per-commit so no
+  intermediate commit carries unused-dependency noise.
+- `Cents(i64)` newtype: only `checked_add`, `checked_mul_qty(u32)`, `try_sum`.
+  No `Div`, no float, no dollar `Display`. `try_sum` → `None` on overflow for the
+  money path; a separate saturating `impl Sum` for tests/logging only.
+
+**Commit 2 — schema**
+- One migration, all tables. Migrations run at app startup (single service,
+  single writer) — a separate migrate step is a production concern, §7.
+- `state`/`status` as `TEXT + CHECK`, not PG `ENUM`: CHECK is trivially altered
+  later; ENUM value adds + ordering are footguns.
+- Cross-tenant integrity enforced at the DB: `customers UNIQUE (id, business_id)`
+  + `invoices` composite FK `(customer_id, business_id)`. Verified: an invoice
+  referencing another tenant's customer is rejected by the FK.
+- `one_pending_payment_per_invoice` partial unique index = the concurrency
+  invariant (≤1 in-flight charge per invoice, across different keys). Verified: a
+  2nd `pending` row for the same invoice is rejected.
+- `payment_attempts UNIQUE (business_id, idempotency_key)` = client-op dedupe.
+- Webhooks split: `webhook_events` holds the payload once; `webhook_deliveries`
+  is one row per (event, endpoint) with `lease_until` for the claim/lease worker.
+- Every index written against a concrete query (list customers, list invoices by
+  state, poll due deliveries, replay event log).
+- 100x: webhook tables are write-heavy → time-partition + retention, then a real
+  queue. (§1 / §7 material.)
+- Removed `rust-toolchain.toml` added in Commit 1: pinning `1.98.0` resolved to
+  the MSVC host on a Windows box whose working toolchain is GNU, breaking the
+  build. Version is now documented in the README; Docker pins via `rust:1.98`.
