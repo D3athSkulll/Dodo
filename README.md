@@ -23,6 +23,7 @@ your default stable; the Docker build pins via the `rust:1.98` base image.
 psql -U postgres -f scripts/db-setup.sql          # create role + db `dodo`
 cp .env.example .env                              # then set DATABASE_URL host to localhost
 set -a && . ./.env && set +a
+cargo run -p invoice-service seed                 # create a business + API key, prints it once
 cargo run -p invoice-service                      # runs migrations on startup, then serves
 ```
 
@@ -32,6 +33,8 @@ Check it:
 curl -i localhost:8080/healthz     # 200 while the process is up
 curl -i localhost:8080/readyz      # 200 only while Postgres is reachable
 ```
+
+Send the key as `Authorization: Bearer dodo_<key_id>_<secret>` on `/v1/*` routes.
 
 `scripts/migrate.sh` still applies migrations with plain `psql` if you want the
 schema without starting the app.

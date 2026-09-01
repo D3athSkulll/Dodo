@@ -45,3 +45,8 @@ Delete before submission.
   real queries in Commit 5 keeps every build DB-free until then. Verified the
   service manually: migrations run on startup, `/healthz` stays up with Postgres
   down, `/readyz` flips to 503.
+- **Commit 4:** AI's plan specified base62 key material (fixed char counts). Used
+  hex instead — no bignum encoder, no extra dependency, and hex has no `_` so the
+  `dodo_<id>_<secret>` split needs no escaping. Same entropy (96 / 256 bits).
+  Confirms section-2 item: SHA-256 over Argon2 for a 256-bit random secret.
+  Verified `seed` against a real Postgres.

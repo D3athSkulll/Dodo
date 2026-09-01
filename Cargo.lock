@@ -756,10 +756,13 @@ name = "invoice-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "getrandom 0.2.17",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
+ "subtle",
  "thiserror",
  "tokio",
  "tower-http",

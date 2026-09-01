@@ -1,18 +1,24 @@
-//! Binary entrypoint: load config, connect to Postgres, run migrations, serve.
+//! Binary entrypoint. `invoice-service` serves; `invoice-service seed` creates
+//! one business + API key and prints the key once.
 
-use invoice_service::{app, config::Config, telemetry};
+use invoice_service::{app, auth, config::Config, telemetry};
 
 #[tokio::main]
 async fn main() {
     telemetry::init_tracing();
 
-    if let Err(e) = run().await {
+    let result = match std::env::args().nth(1).as_deref() {
+        Some("seed") => seed().await,
+        _ => serve().await,
+    };
+
+    if let Err(e) = result {
         tracing::error!(error = %e, "startup failed");
         std::process::exit(1);
     }
 }
 
-async fn run() -> Result<(), Box<dyn std::error::Error>> {
+async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
     let pool = app::connect_pool(&config).await?;
 
@@ -28,6 +34,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     axum::serve(listener, app::router(state))
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+
+    Ok(())
+}
+
+async fn seed() -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config::from_env()?;
+    let pool = app::connect_pool(&config).await?;
+    sqlx::migrate!().run(&pool).await?;
+
+    let (business_id, token) = auth::seed(&pool).await?;
+    // Printed once, to stdout. This is the only time the full key exists.
+    println!("business_id {business_id}");
+    println!("api_key     {token}");
 
     Ok(())
 }

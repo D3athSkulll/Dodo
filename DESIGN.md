@@ -118,3 +118,22 @@ section before submission.
 - `readyz` uses an unchecked `sqlx::query("SELECT 1")` so `cargo build` needs no
   database. Compile-time-checked `query!` + a committed `.sqlx` cache come in
   with the first real queries (Commit 5).
+
+**Commit 4 — API key auth**
+- Token `dodo_<key_id>_<secret>`. `key_id` unique-indexed → auth is one row, no
+  prefix scan. Store `key_id` plaintext + `sha256(secret)` only.
+- SHA-256, not Argon2/bcrypt: the secret is 256 random bits, so a KDF just adds
+  per-request latency and defends a threat (low-entropy guessing) that does not
+  exist. (AI_USAGE section 2 item.)
+- Constant-time compare (`subtle`) of the *hashes* — a timing leak would expose
+  only bits of `sha256(guess)`, but it is free insurance.
+- Revocation is `revoked_at` (soft) → audit trail survives; the lookup checks
+  `revoked_at IS NOT NULL`.
+- `key_id`/`secret` are hex, not base62 — a bit longer, but no bignum encoder or
+  extra dep, and hex never contains `_` so token splitting stays trivial. Entropy
+  is identical (96 / 256 bits).
+- `Business` extractor pulls the id the middleware put in request extensions.
+- `invoice-service seed` creates one business + key and prints the token once.
+  Verified against a real Postgres: two runs make two businesses, `secret_hash`
+  is 32 bytes, `revoked_at` null.
+- Queries here are still unchecked `sqlx::query` (see Commit 3 note).
