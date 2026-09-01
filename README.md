@@ -14,14 +14,17 @@ Built for the Dodo Payments backend take-home. Design rationale lives in
 
 What each commit adds. Newest first.
 
+Keyed by commit subject (`git log --oneline`), since hashes shift on rebase.
+
 | Commit | Added |
 |--------|-------|
-| `63606b8` | Customers: `POST/GET/LIST /v1/customers`, business-scoped, keyset pagination with opaque cursor. `/v1/*` now requires an API key. |
-| `99f546f` | `scripts/pg-dev.sh` — throwaway local Postgres (port 5433) for running the service without Docker. |
-| `6e2795c` | API key auth: `dodo_<key_id>_<secret>` tokens, `Authorization: Bearer` middleware, `Business` extractor, `invoice-service seed` subcommand. |
-| `5df50a8` | Config from env, one JSON error shape, `/healthz` + `/readyz`, per-request id, migrations on startup, graceful shutdown. |
-| `da429b7` | Full database schema (one migration): businesses, customers, invoices + line items, payment attempts, webhook events/deliveries. |
-| `990130b` | Workspace scaffold, `Cents` money type, doc skeletons. |
+| add invoices and invoice state machine | `POST/GET/LIST /v1/invoices` with server-computed totals, `state` filter, `POST .../void` and `.../mark-uncollectible`. State machine `open` → `paid`/`void`/`uncollectible` (all terminal), enforced by a conditional `UPDATE`. `invoice.created` written to the webhook outbox in the same transaction as the insert. |
+| add customers endpoints | `POST/GET/LIST /v1/customers`, business-scoped, keyset pagination with an opaque cursor. `/v1/*` now requires an API key. |
+| add local dev postgres helper | `scripts/pg-dev.sh` — throwaway local Postgres (port 5433) for running the service without Docker. |
+| add API key authentication | `dodo_<key_id>_<secret>` tokens, `Authorization: Bearer` middleware, `Business` extractor, `invoice-service seed` subcommand. |
+| add config, error model, health checks, server bootstrap | Config from env, one JSON error shape, `/healthz` + `/readyz`, per-request id, migrations on startup, graceful shutdown. |
+| add database schema | One migration: businesses, customers, invoices + line items, payment attempts, webhook events/deliveries. |
+| scaffold workspace and doc skeletons | Cargo workspace, `Cents` money type, doc skeletons. |
 
 ## Run
 
@@ -68,11 +71,24 @@ curl -s -H "$AUTH" -H 'content-type: application/json' \
 curl -s -H "$AUTH" localhost:8080/v1/customers/<id>
 curl -s -H "$AUTH" 'localhost:8080/v1/customers?limit=2'
 curl -s -H "$AUTH" 'localhost:8080/v1/customers?limit=2&cursor=<next_cursor>'
+
+# create an invoice — the server computes total_cents and each line amount
+curl -s -H "$AUTH" -H 'content-type: application/json' -d '{
+  "customer_id": "<id>",
+  "due_date": "2026-03-01",
+  "line_items": [
+    {"description": "Widget", "quantity": 2, "unit_amount_cents": 1500},
+    {"description": "Bolt",   "quantity": 3, "unit_amount_cents": 99}
+  ]
+}' localhost:8080/v1/invoices
+
+curl -s -H "$AUTH" localhost:8080/v1/invoices/<id>
+curl -s -H "$AUTH" 'localhost:8080/v1/invoices?state=open'
+curl -s -H "$AUTH" -X POST localhost:8080/v1/invoices/<id>/void
 ```
 
-Still to come: create an invoice (server computes the total), get it, pay with
-`tok_success` → `paid`, pay with `tok_card_declined` → `402`, then
-`GET /v1/webhook_deliveries` for the fan-out.
+Still to come: pay with `tok_success` → `paid`, pay with `tok_card_declined` →
+`402`, then `GET /v1/webhook_deliveries` for the fan-out.
 
 ## Tests
 

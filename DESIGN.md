@@ -232,6 +232,52 @@ correct order.
 
 ---
 
+### Commit 6 — invoices and the state machine
+
+**What shipped**
+`POST /v1/invoices` (server computes the total), `GET /v1/invoices/{id}` (with
+line items), `GET /v1/invoices?state=` (paginated), `POST .../void`,
+`POST .../mark-uncollectible`. Plus `invoice_state.rs` (the machine +
+`transition_invoice`) and `outbox.rs` (the transactional outbox).
+
+**Design choices**
+- *The server owns the total.* Each line amount is `unit_amount_cents ×
+  quantity` via `Cents::checked_mul_qty`; the total is `Cents::try_sum`. Any
+  overflow is a `422`, never a wrap or panic.
+- *A client-supplied `total` (or any unknown field) is rejected*, not ignored —
+  `#[serde(deny_unknown_fields)]`. Being loud beats silently dropping it.
+- *State transitions are one conditional `UPDATE`*:
+  `SET state = $to WHERE id = ? AND business_id = ? AND state = ANY($from)`. Zero
+  rows updated → re-read to return `404` (no such invoice) vs `409`
+  (`invalid_state_transition` with `from`/`to`). No trigger, no read-then-write,
+  no `SERIALIZABLE`.
+- *`open` is the only entry point and the only non-terminal state.* No
+  transition is reversible. The whole table is also a pure function
+  (`InvoiceState::can_transition_to`) with an exhaustive unit test.
+- *The `invoice.created` event is written in the same transaction as the insert.*
+  If the insert rolls back the event goes with it — no orphan webhook. Fan-out to
+  `webhook_deliveries` is one row per active endpoint (zero for now; endpoint
+  registration comes later).
+- *Line items are immutable* — no PATCH endpoint. (A deliberate cut; see
+  section 6.)
+
+**Rough edge**
+`deny_unknown_fields` and bad JSON are rejected by axum's own `Json` extractor,
+so those responses are `422` with axum's plain-text body rather than the
+`{"error":{…}}` envelope. Everything the handlers reject themselves uses the
+envelope. A custom `Json` extractor would unify it; not worth it here.
+
+**Verified** (curl, against the dev cluster)
+Total is computed server-side (`2×1500 + 3×99 = 3297`), per-line amounts filled
+in. Client `total_cents` → `422`. Empty `line_items`, `quantity < 1`, negative
+amount → `422` with per-field messages. `GET` returns the invoice with its lines.
+`?state=open` lists it, `?state=paid` is empty. `void` → `200` state `void`;
+voiding again → `409 invalid_state_transition from void to void`;
+`mark-uncollectible` on a void invoice → `409`. A `webhook_events` row for
+`invoice.created` exists with the invoice as `resource_id`.
+
+---
+
 ### Dev tooling — local Postgres helper  (`99f546f`)
 
 Not part of the plan. `scripts/pg-dev.sh` runs a throwaway Postgres in

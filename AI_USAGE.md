@@ -106,3 +106,16 @@ result was checked. "The plan" = the `prompt.md` produced with Claude + ChatGPT.
 - **Verified with curl** against the dev cluster: auth rejection, create,
   validation envelope, get / 404, and two-page keyset pagination with a
   round-tripped cursor.
+
+### Commit 6 — invoices and state machine
+
+- Followed the plan closely here. The state machine is enforced by a single
+  conditional `UPDATE` (`WHERE state = ANY($from)`); AI's earlier drafts had
+  floated a DB trigger and `SERIALIZABLE` — both rejected as hidden control flow
+  / retry-storm risk (this is section-2 material if a fourth decision is wanted).
+- Chose `#[serde(deny_unknown_fields)]` to reject a client `total`, which means
+  those rejections use axum's default body rather than our error envelope —
+  noted as a rough edge rather than adding a custom extractor.
+- **Verified with curl:** server-computed total, all validation paths, get with
+  line items, list by state, void / re-void 409, and the `invoice.created`
+  outbox row written in the same transaction.
