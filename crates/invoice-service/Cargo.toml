@@ -1,0 +1,20 @@
+[package]
+name = "invoice-service"
+version = "0.1.0"
+edition.workspace = true
+
+# lib + bin so tests can use the crate directly instead of shelling out.
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "invoice-service"
+path = "src/main.rs"
+
+# Only what's used so far.
+[dependencies]
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

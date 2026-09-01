@@ -1,0 +1,12 @@
+[package]
+name = "mock-psp"
+version = "0.1.0"
+edition.workspace = true
+
+# Only what's used so far.
+[dependencies]
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

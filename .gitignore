@@ -1,0 +1,9 @@
+/target
+**/*.rs.bk
+
+# Local secrets / overrides. `.env.example` IS committed and works as-is with the
+# compose defaults.
+.env
+
+# NOTE: `/.sqlx` (SQLx offline query cache) is committed on purpose from Commit 11
+# so `docker build` needs no live database. Do not add it here.

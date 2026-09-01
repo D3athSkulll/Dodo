@@ -1,0 +1,5 @@
+# Project-wide Clippy configuration.
+#
+# Lint *levels* live in the `[workspace.lints.clippy]` table in Cargo.toml.
+# This file is only for Clippy's tunables.
+avoid-breaking-exported-api = false

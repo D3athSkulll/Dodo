@@ -1,0 +1,3 @@
+# Stock rustfmt. Only the edition is pinned so `cargo fmt` behaves the same when
+# invoked outside a Cargo context (e.g. an editor-on-save hook).
+edition = "2021"

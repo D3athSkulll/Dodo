@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = ["crates/invoice-service", "crates/mock-psp"]
+
+[workspace.package]
+edition = "2021"
+
+# Dependency versions live here; each crate opts in with `workspace = true`.
+# Every line has a one-line reason. Crates enable these as they need them.
+[workspace.dependencies]
+axum = "0.8"                                                                             # HTTP framework (assignment prefers Axum); typed extractors, Tower ecosystem
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }    # async runtime; NOT "full" — we only need these
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "time", "macros", "migrate"] }  # async, compile-time-checked SQL, built-in migrator; no ORM
+uuid = { version = "1", features = ["v7"] }                                              # UUID v7 generated app-side (time-ordered, index-friendly)
+time = { version = "0.3", features = ["serde", "macros"] }                               # DATE / TIMESTAMPTZ mapping
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }  # PSP + webhook client; rustls so the image has no OpenSSL
+hmac = "0.12"                                                                            # webhook signature
+sha2 = "0.10"                                                                            # API-key hash + webhook signature
+getrandom = "0.2"                                                                        # CSPRNG bytes for key_id / secret / webhook secret (smaller than `rand`)
+subtle = "2"                                                                             # constant-time hash comparison (see DESIGN.md — kept as cheap insurance)
+thiserror = "2"                                                                          # ApiError derive
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tower-http = { version = "0.6", features = ["trace"] }                                   # request/response spans
+
+# Money-path guard rail: a lossy numeric cast in an amount calculation should
+# warn. Clippy's tunables are in clippy.toml.
+[workspace.lints.clippy]
+cast_possible_truncation = "warn"
+cast_precision_loss = "warn"
+cast_sign_loss = "warn"
