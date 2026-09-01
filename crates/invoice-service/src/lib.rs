@@ -4,7 +4,9 @@
 pub mod app;
 pub mod auth;
 pub mod config;
+pub mod customers;
 pub mod error;
 pub mod health;
 pub mod money;
+pub mod pagination;
 pub mod telemetry;

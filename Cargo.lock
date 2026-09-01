@@ -251,6 +251,9 @@ name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "digest"
@@ -756,6 +759,7 @@ name = "invoice-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64",
  "getrandom 0.2.17",
  "reqwest",
  "serde",
@@ -764,6 +768,7 @@ dependencies = [
  "sqlx",
  "subtle",
  "thiserror",
+ "time",
  "tokio",
  "tower-http",
  "tracing",
@@ -2150,6 +2155,7 @@ checksum = "b5772d71c9be8a8a6ac2117d949c5b224c1b72241bb611d9a3012edcf8af7812"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
+ "serde_core",
  "wasm-bindgen",
 ]
 

@@ -10,6 +10,19 @@ Built for the Dodo Payments backend take-home. Design rationale lives in
 > **Status:** in progress. The run instructions and curl walkthrough below grow
 > as the service comes up.
 
+## Feature log
+
+What each commit adds. Newest first.
+
+| Commit | Added |
+|--------|-------|
+| `63606b8` | Customers: `POST/GET/LIST /v1/customers`, business-scoped, keyset pagination with opaque cursor. `/v1/*` now requires an API key. |
+| `99f546f` | `scripts/pg-dev.sh` — throwaway local Postgres (port 5433) for running the service without Docker. |
+| `6e2795c` | API key auth: `dodo_<key_id>_<secret>` tokens, `Authorization: Bearer` middleware, `Business` extractor, `invoice-service seed` subcommand. |
+| `5df50a8` | Config from env, one JSON error shape, `/healthz` + `/readyz`, per-request id, migrations on startup, graceful shutdown. |
+| `da429b7` | Full database schema (one migration): businesses, customers, invoices + line items, payment attempts, webhook events/deliveries. |
+| `990130b` | Workspace scaffold, `Cents` money type, doc skeletons. |
+
 ## Run
 
 <!-- TODO (Commit 11): one-command `docker compose up` -->
@@ -41,13 +54,25 @@ schema without starting the app.
 
 ## API walkthrough (curl)
 
-<!-- TODO (Commit 13): copy-paste curl flow against :8080 -->
-1. Create a customer
-2. Create an invoice (server computes the total)
-3. Get the invoice
-4. Pay it with `tok_success` → `200`, invoice `paid`
-5. Pay another with `tok_card_declined` → `402`
-6. `GET /v1/webhook_deliveries` to see the fan-out
+<!-- Grows per commit; final copy-paste flow lands in Commit 13. -->
+
+```bash
+KEY=dodo_...          # from `invoice-service seed`
+AUTH="Authorization: Bearer $KEY"
+
+# create a customer
+curl -s -H "$AUTH" -H 'content-type: application/json' \
+  -d '{"name":"Acme","email":"ops@acme.com"}' localhost:8080/v1/customers
+
+# get one, list with pagination
+curl -s -H "$AUTH" localhost:8080/v1/customers/<id>
+curl -s -H "$AUTH" 'localhost:8080/v1/customers?limit=2'
+curl -s -H "$AUTH" 'localhost:8080/v1/customers?limit=2&cursor=<next_cursor>'
+```
+
+Still to come: create an invoice (server computes the total), get it, pay with
+`tok_success` → `paid`, pay with `tok_card_declined` → `402`, then
+`GET /v1/webhook_deliveries` for the fan-out.
 
 ## Tests
 

@@ -67,73 +67,174 @@ audit log + admin tooling. Honourable mention: full SSRF hardening, refunds. -->
 
 ---
 
-## Build notes (raw — turn into prose later, not final)
+## Build log
 
-Short bullets logged per commit as decisions are actually made. Delete this
-section before submission.
+_A running record of what each commit shipped and why, written as it happened.
+It feeds the sections above; **delete this whole section before submission.**_
 
-**Commit 1 — scaffold**
-- Two crates, no `shared`: only shared types are a tiny PSP request/response pair.
-- Deps pinned once in the workspace table; crates enable them per-commit so no
-  intermediate commit carries unused-dependency noise.
-- `Cents(i64)` newtype: only `checked_add`, `checked_mul_qty(u32)`, `try_sum`.
-  No `Div`, no float, no dollar `Display`. `try_sum` → `None` on overflow for the
-  money path; a separate saturating `impl Sum` for tests/logging only.
+Each entry has the same shape: **What shipped**, **Design choices** (with the
+reason, kept short), and **Verified** (how it was checked)._
 
-**Commit 2 — schema**
-- One migration, all tables. Migrations run at app startup (single service,
-  single writer) — a separate migrate step is a production concern, §7.
-- `state`/`status` as `TEXT + CHECK`, not PG `ENUM`: CHECK is trivially altered
-  later; ENUM value adds + ordering are footguns.
-- Cross-tenant integrity enforced at the DB: `customers UNIQUE (id, business_id)`
-  + `invoices` composite FK `(customer_id, business_id)`. Verified: an invoice
-  referencing another tenant's customer is rejected by the FK.
-- `one_pending_payment_per_invoice` partial unique index = the concurrency
-  invariant (≤1 in-flight charge per invoice, across different keys). Verified: a
-  2nd `pending` row for the same invoice is rejected.
-- `payment_attempts UNIQUE (business_id, idempotency_key)` = client-op dedupe.
-- Webhooks split: `webhook_events` holds the payload once; `webhook_deliveries`
-  is one row per (event, endpoint) with `lease_until` for the claim/lease worker.
-- Every index written against a concrete query (list customers, list invoices by
-  state, poll due deliveries, replay event log).
-- 100x: webhook tables are write-heavy → time-partition + retention, then a real
-  queue. (§1 / §7 material.)
-- Removed `rust-toolchain.toml` added in Commit 1: pinning `1.98.0` resolved to
-  the MSVC host on a Windows box whose working toolchain is GNU, breaking the
-  build. Version is now documented in the README; Docker pins via `rust:1.98`.
+---
 
-**Commit 3 — config, errors, bootstrap, health**
-- `Config::from_env()` hand-rolled, ~60 lines, one typed error with the offending
-  key name. No config framework.
-- One `ApiError` enum → one JSON shape `{"error":{"code","message","details"?}}`.
-  `Internal` logs the real cause and returns an opaque body. Validation is 422
-  (request parsed, semantically rejected), not 400.
-- `/healthz` = liveness, never touches the DB. `/readyz` = runs `SELECT 1`, 503
-  if the DB is down. Verified: with Postgres stopped, `/healthz` stays 200 and
-  `/readyz` returns 503.
-- `request_id` middleware: reuse an incoming `x-request-id` or mint a UUID v7;
-  put it on the tracing span and echo it on the response. Stays in logs only.
-- Migrations run via `sqlx::migrate!()` on startup; graceful shutdown on
-  Ctrl-C / SIGTERM.
-- `readyz` uses an unchecked `sqlx::query("SELECT 1")` so `cargo build` needs no
-  database. Compile-time-checked `query!` + a committed `.sqlx` cache come in
-  with the first real queries (Commit 5).
+### Commit 1 — scaffold  (`990130b`)
 
-**Commit 4 — API key auth**
-- Token `dodo_<key_id>_<secret>`. `key_id` unique-indexed → auth is one row, no
-  prefix scan. Store `key_id` plaintext + `sha256(secret)` only.
-- SHA-256, not Argon2/bcrypt: the secret is 256 random bits, so a KDF just adds
-  per-request latency and defends a threat (low-entropy guessing) that does not
-  exist. (AI_USAGE section 2 item.)
-- Constant-time compare (`subtle`) of the *hashes* — a timing leak would expose
-  only bits of `sha256(guess)`, but it is free insurance.
-- Revocation is `revoked_at` (soft) → audit trail survives; the lookup checks
-  `revoked_at IS NOT NULL`.
-- `key_id`/`secret` are hex, not base62 — a bit longer, but no bignum encoder or
-  extra dep, and hex never contains `_` so token splitting stays trivial. Entropy
-  is identical (96 / 256 bits).
-- `Business` extractor pulls the id the middleware put in request extensions.
-- `invoice-service seed` creates one business + key and prints the token once.
-  Verified against a real Postgres: two runs make two businesses, `secret_hash`
-  is 32 bytes, `revoked_at` null.
-- Queries here are still unchecked `sqlx::query` (see Commit 3 note).
+**What shipped**
+Two-crate Cargo workspace (`invoice-service` as lib + bin, `mock-psp`), doc
+skeletons, and the `Cents` money type.
+
+**Design choices**
+- *No `shared` crate.* The only types both binaries touch are a small PSP
+  request/response pair; a crate holding that would be structure for its own sake.
+- *`Cents(i64)` with a tiny surface* — `checked_add`, `checked_mul_qty(u32)`,
+  `try_sum`. No division, no float conversion, no dollar formatting. Overflowing
+  arithmetic returns `None` so the caller can reject it. `try_sum` is what the
+  money path uses; a separate saturating `impl Sum` is for tests and logging only.
+- *Dependency versions pinned once* in the workspace table; each crate enables a
+  dependency only in the commit that first uses it, so no commit carries dead deps.
+
+---
+
+### Commit 2 — database schema  (`da429b7`)
+
+**What shipped**
+One migration (`0001_init.sql`) with all nine tables and their indexes.
+
+**Design choices**
+- *Migrations run at app startup.* One service, one writer — a separate migrate
+  step is a production concern (see section 7), not something to build now.
+- *State columns are `TEXT` + a `CHECK` constraint, not a Postgres `ENUM`.* A
+  CHECK is a one-line migration to change; `ENUM` value additions and their
+  ordering are a footgun.
+- *Cross-tenant integrity lives in the schema.* `customers` has
+  `UNIQUE (id, business_id)`, and `invoices` carries a composite foreign key
+  `(customer_id, business_id)` — so an invoice pointing at another tenant's
+  customer cannot be inserted, regardless of what the query says.
+- *`one_pending_payment_per_invoice`* — a partial unique index
+  (`... WHERE status = 'pending'`). This is the load-bearing concurrency
+  invariant: at most one in-flight external charge per invoice, even across
+  different idempotency keys.
+- *`payment_attempts UNIQUE (business_id, idempotency_key)`* — the same client
+  operation is processed once; retries replay.
+- *Webhook tables are split.* `webhook_events` holds each payload once;
+  `webhook_deliveries` is one row per (event, endpoint) and carries `lease_until`
+  for the claim/lease delivery worker.
+- Every index is written against a concrete query (list customers, list invoices
+  by state, poll due deliveries, replay the event log).
+- *At 100×:* the webhook tables are the write-heavy ones → time-based
+  partitioning plus a retention job, then a real queue for delivery.
+
+**Verified** (throwaway PG18 cluster)
+All tables and indexes create. The composite FK rejects an invoice that
+references another tenant's customer. The partial unique index rejects a second
+`pending` payment attempt on the same invoice.
+
+**Correction**
+`rust-toolchain.toml` (added in Commit 1) pinned `1.98.0`, which resolved to the
+MSVC host toolchain on this machine while the working one is GNU — the build
+failed at the linker. Removed it; the Rust version is now documented in the
+README and will be pinned for Docker via the `rust:1.98` image.
+
+---
+
+### Commit 3 — config, error model, health, bootstrap  (`5df50a8`)
+
+**What shipped**
+`Config::from_env()`, the `ApiError` type, `/healthz` and `/readyz`, the
+request-id middleware, migrations-on-startup, and graceful shutdown.
+
+**Design choices**
+- *Config is hand-rolled* (~60 lines): a typed struct, per-field parsing, and one
+  error that names the offending variable. No config framework earns its place.
+- *One `ApiError` enum → one JSON shape* `{"error":{"code","message","details"?}}`.
+  `Internal` logs the real cause and returns an opaque body. Validation failures
+  are `422` (the request parsed, it is semantically rejected), not `400`.
+- *Liveness ≠ readiness.* `/healthz` never touches the database, so a slow DB
+  can't get a healthy process killed. `/readyz` runs `SELECT 1` and returns `503`
+  while the DB is unreachable.
+- *Request id:* reuse an incoming `x-request-id` or mint a UUID v7; attach it to
+  the tracing span and echo it on the response. It never appears in a response
+  body.
+- *Migrations run via `sqlx::migrate!()` on startup;* shutdown drains on Ctrl-C /
+  SIGTERM.
+
+**Deviation from the plan**
+The plan wanted compile-time-checked queries (`sqlx::query!`) from the start.
+Those need a database (or a committed `.sqlx` cache) at *build* time, which would
+also make the unit tests need a database. Chose unchecked `sqlx::query` instead —
+every `cargo build` / `test` stays DB-free and the Docker image needs no `.sqlx`
+bundle. The SQL is simple and gets exercised by the integration tests in
+Commit 10.
+
+**Verified**
+Migrations run on startup. With Postgres stopped, `/healthz` stays `200` and
+`/readyz` returns `503`.
+
+---
+
+### Commit 4 — API key authentication  (`6e2795c`)
+
+**What shipped**
+Token generation, the `require_api_key` middleware, the `Business` extractor, and
+the `invoice-service seed` subcommand.
+
+**Design choices**
+- *Token is `dodo_<key_id>_<secret>`.* `key_id` is stored in plaintext and
+  uniquely indexed, so authentication is a single-row lookup with no prefix-scan
+  ambiguity. Only `sha256(secret)` is stored.
+- *SHA-256, not Argon2/bcrypt.* The secret is 256 bits of CSPRNG output, so a
+  slow KDF only adds latency to every request and defends against low-entropy
+  guessing that cannot happen here.
+- *Constant-time comparison* (`subtle`) of the hashes — a timing leak would
+  reveal only bits of `sha256(guess)`, but the check is free.
+- *Revocation is a `revoked_at` timestamp* (soft), so an audit trail survives;
+  the lookup treats a non-null value as revoked.
+
+**Deviation from the plan**
+The plan specified base62 key material. Used hex — no big-integer encoder, no
+extra dependency, and hex never contains `_` so splitting the token needs no
+escaping. Same entropy (96-bit id, 256-bit secret).
+
+**Verified**
+`invoice-service seed` against a real Postgres: two runs create two businesses,
+each `secret_hash` is 32 bytes, `revoked_at` is null.
+
+---
+
+### Commit 5 — customers
+
+**What shipped**
+`POST /v1/customers`, `GET /v1/customers/{id}`, `GET /v1/customers` (paginated),
+and the `/v1` route group placed behind `require_api_key`.
+
+**Design choices**
+- *Tenant scoping is in every query.* Each statement carries
+  `WHERE business_id = $1`; a `GET` for another tenant's customer is a plain
+  `404`, not a `403` (we don't confirm the row exists).
+- *Keyset pagination, not `OFFSET`.* Order is `(created_at DESC, id DESC)`, and a
+  page is "everything strictly less than the last row's `(created_at, id)`". This
+  is O(rows returned), stable under inserts, and matches `customers_list_idx`
+  exactly. `OFFSET` drifts when rows are added and scans everything it skips.
+- *The cursor is opaque* — base64 of `<nanos>_<uuid>`. Clients round-trip it and
+  don't build their own.
+- *Response envelopes are consistent:* lists return
+  `{ "data": [...], "next_cursor": ... }`; a single resource returns the bare
+  object.
+- *Email validation is deliberately loose* — one `@`, non-empty local part, a dot
+  in the domain. Not RFC 5322; just enough to reject typos.
+
+**Verified** (curl, against the dev cluster)
+No key → `401`; bad key → `401`. Create → `201` with the row. Bad body → `422`
+with the standard error envelope and per-field messages. `GET` by id → `200`;
+unknown id → `404`. `?limit=2` returns two newest plus a `next_cursor`; passing
+that cursor returns the next two with `next_cursor: null` at the end — no overlap,
+correct order.
+
+---
+
+### Dev tooling — local Postgres helper  (`99f546f`)
+
+Not part of the plan. `scripts/pg-dev.sh` runs a throwaway Postgres in
+`./.pgdata` on port 5433, isolated from any system install, with fixed
+credentials (`dodo`/`dodo`). Added so the service can be run and checked by hand
+without Docker.
