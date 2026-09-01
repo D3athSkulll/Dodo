@@ -1,6 +1,9 @@
 /target
 **/*.rs.bk
 
+# Local dev Postgres cluster created by scripts/pg-dev.sh
+/.pgdata
+
 # Local secrets / overrides. `.env.example` IS committed and works as-is with the
 # compose defaults.
 .env
