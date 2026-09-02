@@ -181,3 +181,9 @@ result was checked. "The plan" = the `prompt.md` produced with Claude + ChatGPT.
 - **Not run:** Docker is not installed on this machine. The compose file is
   schema-valid (parsed) and the Dockerfile is the conventional pattern, but the
   actual `docker compose up` is unverified here.
+
+### Housekeeping — Postman collection
+
+- Hand-wrote a Postman collection with per-request assertions and verified it
+  end to end with `newman` against a live stack (31 requests, 55 assertions,
+  0 failures).

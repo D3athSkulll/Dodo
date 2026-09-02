@@ -539,6 +539,18 @@ reviewer's `docker compose up` is the real check.
 
 ---
 
+### Housekeeping — Postman collection
+
+`postman/` holds a collection that walks the whole API with assertions on the
+expected behaviour (status codes, the error envelope, state transitions,
+idempotency replay, `idempotency_key_conflict`, `invoice_not_open`). Runs in the
+Postman Runner or headless with `newman`. **Verified:** `newman run` against a
+live local stack — 31 requests, 55 assertions, 0 failures. Concurrency and
+time-dependent cases (20-way `pay`, `tok_timeout` recovery) stay in the Rust
+integration tests where they can be controlled.
+
+---
+
 ### Dev tooling — local Postgres helper  (`99f546f`)
 
 Not part of the plan. `scripts/pg-dev.sh` runs a throwaway Postgres in

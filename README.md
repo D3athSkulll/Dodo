@@ -18,6 +18,7 @@ Keyed by commit subject (`git log --oneline`), since hashes shift on rebase.
 
 | Commit | Added |
 |--------|-------|
+| add Postman collection | `postman/` — a collection that walks the whole API with assertions (status, error envelope, state transitions, idempotency). Runs via the Postman Runner or `newman`; 31 requests / 55 assertions. |
 | add Dockerfile and docker-compose | Multi-stage `Dockerfile` (cargo-chef dep caching, rustls, non-root) building both binaries into one image. `docker-compose.yml`: `db` (healthchecked), `mock-psp`, `seed` (one-shot, logs the key), `app` (port 8080), one named volume, all env inline. |
 | modularise the source tree | No behaviour change. Flat `src/*.rs` grouped into `routes/` (HTTP handlers + router assembly), `domain/` (state machine, outbox), `workers/` (sweeper, webhook delivery); cross-cutting leaves stay at the root. `lib.rs` opens with a map of the layout. |
 | add integration tests | `tests/` on real Postgres (`#[sqlx::test]`, isolated DB per test) running the app + mock PSP in-process: `concurrency` (20 concurrent pays → one charge), `idempotency` (replay, no 2nd charge), `psp_failure` (`tok_timeout` settled by the sweeper; `tok_network_error` fails cleanly), `concurrent_timeout` (20 timeouts → one in-flight charge). `mock-psp` is now lib + bin. |
@@ -139,6 +140,16 @@ real service + mock PSP in-process on ephemeral ports.
 Per-handler HTTP tests are intentionally skipped: the three risk areas
 (concurrency, idempotency, PSP failure) are covered above, and the handlers are
 thin wrappers over the pieces those tests already exercise.
+
+### Postman
+
+[`postman/`](postman/) has a collection that walks the full API with assertions.
+Import it with `postman/local.postman_environment.json`, or run headless:
+
+```bash
+newman run postman/Invoice-Payment-Service.postman_collection.json \
+  --env-var baseUrl=http://localhost:8080 --env-var apiKey=<seeded key>
+```
 
 ## API documentation
 

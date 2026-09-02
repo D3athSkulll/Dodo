@@ -4,6 +4,13 @@
 # Local dev Postgres cluster created by scripts/pg-dev.sh
 /.pgdata
 
+# Postman VS Code extension working copy. The portable collection lives at
+# postman/Invoice-Payment-Service.postman_collection.json; the rest is editor cache.
+/.postman/
+/postman/collections/
+/postman/environments/
+/postman/globals/
+
 # Local secrets / overrides. `.env.example` IS committed and works as-is with the
 # compose defaults.
 .env

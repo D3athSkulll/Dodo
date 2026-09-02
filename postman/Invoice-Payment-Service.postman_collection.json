@@ -1,0 +1,457 @@
+{
+  "info": {
+    "name": "Invoice & Payment Service",
+    "description": "End-to-end walkthrough of the API with assertions for the expected behaviour.\n\nSetup:\n1. Start the stack (`docker compose up` or the local run in the README).\n2. Import this collection and `local.postman_environment.json`.\n3. Put the seeded key (from `docker compose logs seed`) into the `apiKey` variable.\n4. Run the folders top to bottom, or use the Collection Runner.\n\nRequests chain through collection variables (`customerId`, `invoiceId`, ...), so order matters within a folder.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{apiKey}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "apiKey", "value": "" },
+    { "key": "customerId", "value": "" },
+    { "key": "invoiceId", "value": "" },
+    { "key": "voidInvoiceId", "value": "" },
+    { "key": "declineInvoiceId", "value": "" },
+    { "key": "paymentId", "value": "" },
+    { "key": "nextCursor", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /healthz  -> 200 (liveness, no DB)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/healthz", "auth": { "type": "noauth" } },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": [
+                "pm.test('200', () => pm.response.to.have.status(200));",
+                "pm.test('has x-request-id', () => pm.expect(pm.response.headers.has('x-request-id')).to.be.true);"
+              ] }
+            }
+          ]
+        },
+        {
+          "name": "GET /readyz  -> 200 (DB reachable)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/readyz", "auth": { "type": "noauth" } },
+          "event": [
+            { "listen": "test", "script": { "exec": [ "pm.test('200', () => pm.response.to.have.status(200));" ] } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "No key  -> 401",
+          "request": { "method": "GET", "url": "{{baseUrl}}/v1/customers", "auth": { "type": "noauth" } },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('401', () => pm.response.to.have.status(401));",
+              "pm.test('error envelope', () => pm.expect(pm.response.json().error.code).to.eql('unauthorized'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Bad key  -> 401",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/v1/customers",
+            "header": [{ "key": "Authorization", "value": "Bearer dodo_deadbeef_notreal" }],
+            "auth": { "type": "noauth" }
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [ "pm.test('401', () => pm.response.to.have.status(401));" ] } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Customers",
+      "item": [
+        {
+          "name": "Create customer  -> 201",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Acme Corp\",\n  \"email\": \"ops@acme.example\"\n}" },
+            "url": "{{baseUrl}}/v1/customers"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('201', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "pm.test('has id + created_at', () => { pm.expect(b.id).to.be.a('string'); pm.expect(b.created_at).to.be.a('string'); });",
+              "pm.collectionVariables.set('customerId', b.id);"
+            ] } }
+          ]
+        },
+        {
+          "name": "Get customer  -> 200",
+          "request": { "method": "GET", "url": "{{baseUrl}}/v1/customers/{{customerId}}" },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "pm.test('same id', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('customerId')));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Get customer (unknown id)  -> 404",
+          "request": { "method": "GET", "url": "{{baseUrl}}/v1/customers/11111111-1111-1111-1111-111111111111" },
+          "event": [
+            { "listen": "test", "script": { "exec": [ "pm.test('404', () => pm.response.to.have.status(404));" ] } }
+          ]
+        },
+        {
+          "name": "Create customer (invalid)  -> 422",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"  \",\n  \"email\": \"not-an-email\"\n}" },
+            "url": "{{baseUrl}}/v1/customers"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('422', () => pm.response.to.have.status(422));",
+              "const e = pm.response.json().error;",
+              "pm.test('validation_error with per-field details', () => { pm.expect(e.code).to.eql('validation_error'); pm.expect(e.details.map(d => d.field)).to.include.members(['name','email']); });"
+            ] } }
+          ]
+        },
+        {
+          "name": "List customers  -> 200 (keyset page)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/v1/customers?limit=5" },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "pm.test('envelope { data, next_cursor }', () => { pm.expect(b).to.have.property('data'); pm.expect(b).to.have.property('next_cursor'); });",
+              "if (b.next_cursor) pm.collectionVariables.set('nextCursor', b.next_cursor);"
+            ] } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Invoices",
+      "item": [
+        {
+          "name": "Create invoice  -> 201 (server computes total = 3297)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"due_date\": \"2026-06-01\",\n  \"line_items\": [\n    { \"description\": \"Widget\", \"quantity\": 2, \"unit_amount_cents\": 1500 },\n    { \"description\": \"Bolt\",   \"quantity\": 3, \"unit_amount_cents\": 99 }\n  ]\n}" },
+            "url": "{{baseUrl}}/v1/invoices"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('201', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "pm.test('state open, total_cents 3297', () => { pm.expect(b.state).to.eql('open'); pm.expect(b.total_cents).to.eql(3297); });",
+              "pm.test('line amounts filled in', () => pm.expect(b.line_items.map(l => l.amount_cents)).to.eql([3000, 297]));",
+              "pm.collectionVariables.set('invoiceId', b.id);"
+            ] } }
+          ]
+        },
+        {
+          "name": "Create invoice (client-supplied total)  -> 422",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"due_date\": \"2026-06-01\",\n  \"total_cents\": 1,\n  \"line_items\": [{ \"description\": \"x\", \"quantity\": 1, \"unit_amount_cents\": 1 }]\n}" },
+            "url": "{{baseUrl}}/v1/invoices"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [ "pm.test('422 (unknown field rejected)', () => pm.response.to.have.status(422));" ] } }
+          ]
+        },
+        {
+          "name": "Create invoice (empty line_items)  -> 422",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"due_date\": \"2026-06-01\",\n  \"line_items\": []\n}" },
+            "url": "{{baseUrl}}/v1/invoices"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('422', () => pm.response.to.have.status(422));",
+              "pm.test('validation_error', () => pm.expect(pm.response.json().error.code).to.eql('validation_error'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Get invoice  -> 200 (with line items)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/v1/invoices/{{invoiceId}}" },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "pm.test('has line_items', () => pm.expect(pm.response.json().line_items).to.have.lengthOf(2));"
+            ] } }
+          ]
+        },
+        {
+          "name": "List invoices ?state=open  -> 200",
+          "request": { "method": "GET", "url": "{{baseUrl}}/v1/invoices?state=open&limit=10" },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "pm.test('every row is open', () => pm.response.json().data.forEach(i => pm.expect(i.state).to.eql('open')));"
+            ] } }
+          ]
+        },
+        {
+          "name": "setup: invoice to void",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"due_date\": \"2026-06-01\",\n  \"line_items\": [{ \"description\": \"scratch\", \"quantity\": 1, \"unit_amount_cents\": 100 }]\n}" },
+            "url": "{{baseUrl}}/v1/invoices"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('201', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('voidInvoiceId', pm.response.json().id);"
+            ] } }
+          ]
+        },
+        {
+          "name": "Void invoice  -> 200 (state void)",
+          "request": { "method": "POST", "url": "{{baseUrl}}/v1/invoices/{{voidInvoiceId}}/void" },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "pm.test('state void', () => pm.expect(pm.response.json().state).to.eql('void'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Void again  -> 409 invalid_state_transition",
+          "request": { "method": "POST", "url": "{{baseUrl}}/v1/invoices/{{voidInvoiceId}}/void" },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('409', () => pm.response.to.have.status(409));",
+              "pm.test('invalid_state_transition from void', () => { const e = pm.response.json().error; pm.expect(e.code).to.eql('invalid_state_transition'); pm.expect(e.message).to.include('void'); });"
+            ] } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Pay (missing Idempotency-Key)  -> 422",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{ \"card_token\": \"tok_success\" }" },
+            "url": "{{baseUrl}}/v1/invoices/{{invoiceId}}/pay"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('422', () => pm.response.to.have.status(422));",
+              "pm.test('names the header', () => pm.expect(JSON.stringify(pm.response.json())).to.include('Idempotency-Key'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Pay success  -> 200 (invoice paid)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "pm-pay-success" }
+            ],
+            "body": { "mode": "raw", "raw": "{ \"card_token\": \"tok_success\" }" },
+            "url": "{{baseUrl}}/v1/invoices/{{invoiceId}}/pay"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "pm.test('attempt succeeded, invoice paid', () => { pm.expect(b.attempt.status).to.eql('succeeded'); pm.expect(b.invoice.state).to.eql('paid'); });",
+              "pm.collectionVariables.set('paymentId', b.attempt.id);"
+            ] } }
+          ]
+        },
+        {
+          "name": "Pay replay (same key + body)  -> 200 identical",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "pm-pay-success" }
+            ],
+            "body": { "mode": "raw", "raw": "{ \"card_token\": \"tok_success\" }" },
+            "url": "{{baseUrl}}/v1/invoices/{{invoiceId}}/pay"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "pm.test('same attempt id as first call', () => pm.expect(pm.response.json().attempt.id).to.eql(pm.collectionVariables.get('paymentId')));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Pay paid invoice (new key)  -> 409 invoice_not_open",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "pm-pay-again" }
+            ],
+            "body": { "mode": "raw", "raw": "{ \"card_token\": \"tok_success\" }" },
+            "url": "{{baseUrl}}/v1/invoices/{{invoiceId}}/pay"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('409', () => pm.response.to.have.status(409));",
+              "pm.test('invoice_not_open', () => pm.expect(pm.response.json().error.code).to.eql('invoice_not_open'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "setup: invoice for a declined payment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"due_date\": \"2026-06-01\",\n  \"line_items\": [{ \"description\": \"scratch\", \"quantity\": 1, \"unit_amount_cents\": 500 }]\n}" },
+            "url": "{{baseUrl}}/v1/invoices"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('201', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('declineInvoiceId', pm.response.json().id);"
+            ] } }
+          ]
+        },
+        {
+          "name": "Pay declined  -> 402 (invoice stays open)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "pm-pay-declined" }
+            ],
+            "body": { "mode": "raw", "raw": "{ \"card_token\": \"tok_card_declined\" }" },
+            "url": "{{baseUrl}}/v1/invoices/{{declineInvoiceId}}/pay"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('402', () => pm.response.to.have.status(402));",
+              "pm.test('attempt failed with code', () => { const b = pm.response.json(); pm.expect(b.attempt.status).to.eql('failed'); pm.expect(b.attempt.failure_code).to.eql('card_declined'); });"
+            ] } }
+          ]
+        },
+        {
+          "name": "Idempotency conflict (same key, different token)  -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "pm-pay-declined" }
+            ],
+            "body": { "mode": "raw", "raw": "{ \"card_token\": \"tok_success\" }" },
+            "url": "{{baseUrl}}/v1/invoices/{{declineInvoiceId}}/pay"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('409', () => pm.response.to.have.status(409));",
+              "pm.test('idempotency_key_conflict', () => pm.expect(pm.response.json().error.code).to.eql('idempotency_key_conflict'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Get payment  -> 200",
+          "request": { "method": "GET", "url": "{{baseUrl}}/v1/payments/{{paymentId}}" },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "pm.test('succeeded', () => pm.expect(pm.response.json().status).to.eql('succeeded'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "List invoice payments  -> 200",
+          "request": { "method": "GET", "url": "{{baseUrl}}/v1/invoices/{{invoiceId}}/payments" },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "pm.test('one succeeded attempt', () => { const d = pm.response.json().data; pm.expect(d.filter(p => p.status === 'succeeded')).to.have.lengthOf(1); });"
+            ] } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "Register endpoint  -> 201 (secret returned once)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{ \"url\": \"https://example.com/hooks/dodo\" }" },
+            "url": "{{baseUrl}}/v1/webhook_endpoints"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('201', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "pm.test('id + secret', () => { pm.expect(b.id).to.be.a('string'); pm.expect(b.secret).to.be.a('string'); });"
+            ] } }
+          ]
+        },
+        {
+          "name": "Register blocked URL  -> 422 (SSRF guard)",
+          "description": "Only fails when WEBHOOK_ALLOW_PRIVATE_TARGETS is false. Under docker compose it is true, so this returns 201 — see the note in the test.",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{ \"url\": \"http://169.254.169.254/latest/meta-data\" }" },
+            "url": "{{baseUrl}}/v1/webhook_endpoints"
+          },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('422 when the SSRF guard is on, else 201', () => pm.expect(pm.response.code).to.be.oneOf([422, 201]));"
+            ] } }
+          ]
+        },
+        {
+          "name": "List webhook events  -> 200",
+          "request": { "method": "GET", "url": "{{baseUrl}}/v1/webhook_events?limit=20" },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "pm.test('has invoice.created and invoice.paid', () => { const types = pm.response.json().data.map(e => e.event_type); pm.expect(types).to.include('invoice.created'); pm.expect(types).to.include('invoice.paid'); });"
+            ] } }
+          ]
+        },
+        {
+          "name": "List deliveries  -> 200",
+          "request": { "method": "GET", "url": "{{baseUrl}}/v1/webhook_deliveries" },
+          "event": [
+            { "listen": "test", "script": { "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "pm.test('envelope { data }', () => pm.expect(pm.response.json()).to.have.property('data'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "List deliveries ?status=exhausted  -> 200",
+          "request": { "method": "GET", "url": "{{baseUrl}}/v1/webhook_deliveries?status=exhausted" },
+          "event": [
+            { "listen": "test", "script": { "exec": [ "pm.test('200', () => pm.response.to.have.status(200));" ] } }
+          ]
+        }
+      ]
+    }
+  ]
+}
