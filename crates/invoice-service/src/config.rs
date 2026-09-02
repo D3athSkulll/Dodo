@@ -22,6 +22,10 @@ pub struct Config {
     pub webhook_lease: Duration,
     pub payment_sweep_interval: Duration,
     pub payment_pending_max_age: Duration,
+    /// Allow webhook endpoint URLs that resolve to loopback / private ranges.
+    /// Off in production; on for local dev and `docker compose`, where the
+    /// receiver is a sibling service on a private address.
+    pub webhook_allow_private_targets: bool,
 }
 
 impl Config {
@@ -35,8 +39,15 @@ impl Config {
             webhook_lease: seconds("WEBHOOK_LEASE_SECONDS")?,
             payment_sweep_interval: millis("PAYMENT_SWEEP_INTERVAL_MS")?,
             payment_pending_max_age: seconds("PAYMENT_PENDING_MAX_AGE_SECONDS")?,
+            webhook_allow_private_targets: flag("WEBHOOK_ALLOW_PRIVATE_TARGETS"),
         })
     }
+}
+
+fn flag(key: &'static str) -> bool {
+    std::env::var(key)
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
 }
 
 fn required(key: &'static str) -> Result<String, ConfigError> {

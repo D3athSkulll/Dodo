@@ -6,7 +6,7 @@ use std::time::Duration;
 use axum::{middleware::from_fn_with_state, routing::get, Router};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
-use crate::{auth, config::Config, customers, health, invoices, payments, telemetry};
+use crate::{auth, config::Config, customers, health, invoices, payments, telemetry, webhooks};
 
 /// Everything a handler needs. Cheap to clone: the pool and http client are
 /// reference-counted internally, and the config sits behind an `Arc`.
@@ -43,6 +43,7 @@ pub fn router(state: AppState) -> Router {
     let v1 = customers::routes()
         .merge(invoices::routes())
         .merge(payments::routes())
+        .merge(webhooks::routes())
         .layer(from_fn_with_state(state.clone(), auth::require_api_key));
 
     Router::new()

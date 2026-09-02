@@ -1,7 +1,7 @@
 //! Binary entrypoint. `invoice-service` serves; `invoice-service seed` creates
 //! one business + API key and prints the key once.
 
-use invoice_service::{app, auth, config::Config, sweeper, telemetry};
+use invoice_service::{app, auth, config::Config, sweeper, telemetry, webhook_worker};
 
 #[tokio::main]
 async fn main() {
@@ -28,9 +28,10 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let bind = config.bind_addr.clone();
     let state = app::build_state(pool, config);
 
-    // Background reconciliation of stuck payment attempts. Aborted on shutdown;
-    // it is idempotent and resumes on the next start.
+    // Background workers. Both are idempotent and resume on the next start, so
+    // they are simply aborted on shutdown.
     sweeper::spawn(state.clone());
+    webhook_worker::spawn(state.clone());
 
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!(%bind, "listening");

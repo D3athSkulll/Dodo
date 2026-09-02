@@ -10,7 +10,7 @@ edition = "2021"
 [workspace.dependencies]
 axum = "0.8"                                                                             # HTTP framework (assignment prefers Axum); typed extractors, Tower ecosystem
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }    # async runtime; NOT "full" — we only need these
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "time", "macros", "migrate"] }  # async, compile-time-checked SQL, built-in migrator; no ORM
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "time", "json", "macros", "migrate"] }  # async SQL, built-in migrator; no ORM
 uuid = { version = "1", features = ["v7", "serde"] }                                     # UUID v7 generated app-side (time-ordered, index-friendly)
 time = { version = "0.3", features = ["serde", "serde-well-known", "macros"] }           # DATE / TIMESTAMPTZ mapping + RFC 3339 serde
 serde = { version = "1", features = ["derive"] }

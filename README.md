@@ -18,6 +18,7 @@ Keyed by commit subject (`git log --oneline`), since hashes shift on rebase.
 
 | Commit | Added |
 |--------|-------|
+| add webhooks | `POST /v1/webhook_endpoints` (best-effort SSRF guard, secret returned once). Delivery worker (claim/lease, no lock during POST) signs each payload — `Dodo-Signature: t=<unix>,v1=hmac_sha256(secret,"<t>.<body>")` + `Dodo-Event-Id` — and retries on failure with `1m,5m,30m,2h,6h` backoff to `exhausted` at 6 attempts. Reconciliation via `GET /v1/webhook_events` and `GET /v1/webhook_deliveries?status=`. New env: `WEBHOOK_ALLOW_PRIVATE_TARGETS`. |
 | add payment attempts and reconciliation sweeper | `POST /v1/invoices/{id}/pay` (`Idempotency-Key` header required): three-phase claim / call-PSP / settle, no DB transaction around the PSP call. `GET /v1/payments/{id}`, `GET /v1/invoices/{id}/payments`. Background sweeper finishes stuck `pending` attempts by re-submitting the idempotent charge. `invoice.paid` / `invoice.payment_failed` events. Migration `0002` adds `payment_attempts.card_token`. |
 | add mock PSP | `crates/mock-psp`: `POST /charge` with deterministic per-token outcomes (`tok_success`, `tok_insufficient_funds`, `tok_card_declined`, `tok_timeout`, `tok_network_error`), idempotent on `idempotency_key`, plus `GET /_debug/charges`. Delays tunable via `MOCK_PSP_DELAY_MS` / `MOCK_PSP_TIMEOUT_MS`. |
 | add invoices and invoice state machine | `POST/GET/LIST /v1/invoices` with server-computed totals, `state` filter, `POST .../void` and `.../mark-uncollectible`. State machine `open` → `paid`/`void`/`uncollectible` (all terminal), enforced by a conditional `UPDATE`. `invoice.created` written to the webhook outbox in the same transaction as the insert. |
@@ -96,9 +97,16 @@ curl -s -H "$AUTH" -H 'content-type: application/json' -H 'Idempotency-Key: pay-
   -d '{"card_token":"tok_card_declined"}' localhost:8080/v1/invoices/<other-id>/pay  # -> 402
 
 curl -s -H "$AUTH" localhost:8080/v1/invoices/<id>/payments
+
+# register a webhook endpoint (secret is returned once), then watch deliveries
+curl -s -H "$AUTH" -H 'content-type: application/json' \
+  -d '{"url":"https://your-receiver.example/hook"}' localhost:8080/v1/webhook_endpoints
+curl -s -H "$AUTH" 'localhost:8080/v1/webhook_deliveries'
+curl -s -H "$AUTH" 'localhost:8080/v1/webhook_events'
 ```
 
-Still to come: `GET /v1/webhook_deliveries` for the signed fan-out.
+Verify a delivery: `hmac_sha256(secret, "<t>.<raw_body>")` must equal the `v1=`
+value in the `Dodo-Signature` header (`t=` is the unix timestamp).
 
 ## Tests
 

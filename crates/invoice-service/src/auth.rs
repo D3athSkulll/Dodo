@@ -32,8 +32,8 @@ pub struct GeneratedKey {
 
 impl GeneratedKey {
     pub fn new() -> Self {
-        let key_id = hex(&random_bytes::<12>());
-        let secret = hex(&random_bytes::<32>());
+        let key_id = crate::secret::hex(12);
+        let secret = crate::secret::hex(32);
         let secret_hash = sha256(secret.as_bytes());
         let token = format!("{TOKEN_PREFIX}_{key_id}_{secret}");
         Self {
@@ -48,22 +48,6 @@ impl Default for GeneratedKey {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn random_bytes<const N: usize>() -> [u8; N] {
-    let mut buf = [0u8; N];
-    getrandom::getrandom(&mut buf).expect("system CSPRNG unavailable");
-    buf
-}
-
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write;
-
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        let _ = write!(s, "{b:02x}");
-    }
-    s
 }
 
 fn sha256(bytes: &[u8]) -> [u8; 32] {

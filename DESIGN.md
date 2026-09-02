@@ -398,6 +398,56 @@ later `200 succeeded` / `402 failed`). We store `status` / `psp_ref` /
 
 ---
 
+### Commit 9 — webhooks
+
+**What shipped**
+`POST /v1/webhook_endpoints`, the delivery worker, retry/backoff, and two
+reconciliation endpoints. The outbox writes were already wired in Commits 6 & 8.
+
+**Design choices**
+- *Signing:* `Dodo-Signature: t=<unix>,v1=<hex>` where `hex =
+  hmac_sha256(secret, "<t>.<body>")`, symmetric per-endpoint secret. Asymmetric
+  (Ed25519) rejected — key distribution overhead with no threat model that needs
+  it here.
+- *Replay protection is two mechanisms:* the receiver rejects if `|now - t|` is
+  large **and** dedupes on `Dodo-Event-Id`. Freshness alone still allows replay
+  inside the window; the event id closes it. Delivery is at-least-once by design.
+- *`webhook_events` vs `webhook_deliveries`:* the payload is stored once on the
+  event; a delivery is one row per (event, endpoint) carrying only attempt
+  state. No payload duplication.
+- *No lock during the POST.* Claim + lease in one tx, commit, POST, record the
+  outcome in a second tx. A dead endpoint can never hold a row lock or a pooled
+  connection. `SKIP LOCKED` lets replicas share the queue; a crashed worker's
+  `inflight` rows free themselves once `lease_until` passes.
+- *Decoupled from the request path.* The API handler's transaction only inserts
+  delivery rows — it never makes an outbound call, so `/pay` latency is
+  independent of every registered endpoint's health.
+- *Backoff:* `1m, 5m, 30m, 2h, 6h`, then `exhausted` at 6 attempts (~8h46m
+  budget). Retryable = timeout / connection error / 5xx / 408 / 429; any other
+  4xx is permanent. Jitter is a noted production improvement.
+- *Reconciliation:* `GET /v1/webhook_events` is the durable log to replay from;
+  `GET /v1/webhook_deliveries?status=exhausted` is what never got through.
+- *SSRF:* best-effort — parse, require http(s), resolve the host, reject
+  loopback / private / link-local / metadata IPs. Gated by
+  `WEBHOOK_ALLOW_PRIVATE_TARGETS` (off in prod; on for local dev and compose,
+  where the receiver is a sibling on a private address). Full protection also
+  needs resolve-then-pin and no-follow-redirects at connect time — DESIGN §7.
+- Email is `tracing::info!("would send email …")` only.
+
+**Deviation from the plan.** Added the `WEBHOOK_ALLOW_PRIVATE_TARGETS` flag —
+without it, `docker compose` and every local demo would be unable to register a
+reachable receiver.
+
+**Verified** (worker + a Python receiver that recomputes the HMAC)
+`invoice.created` and `invoice.paid` both delivered; the receiver's independent
+`hmac_sha256(secret, "<t>.<body>")` matches `v1` for both; `Dodo-Event-Id`
+present. With the flag off, `127.0.0.1`, `169.254.169.254`, `10.x` and non-http
+schemes are all `422`; `https://example.com` is accepted. Against a dead port,
+deliveries go `pending` with `attempts = 1` and `next_attempt_at` pushed out by
+the backoff. `?status=exhausted` is empty on the happy path.
+
+---
+
 ### Dev tooling — local Postgres helper  (`99f546f`)
 
 Not part of the plan. `scripts/pg-dev.sh` runs a throwaway Postgres in

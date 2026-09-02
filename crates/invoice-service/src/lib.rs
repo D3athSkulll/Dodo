@@ -14,5 +14,8 @@ pub mod outbox;
 pub mod pagination;
 pub mod payments;
 pub mod psp;
+pub mod secret;
 pub mod sweeper;
 pub mod telemetry;
+pub mod webhook_worker;
+pub mod webhooks;

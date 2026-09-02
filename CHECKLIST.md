@@ -50,7 +50,7 @@ This checklist tracks the implementation of the 13 commits specified in the buil
   - Concurrency guards and idempotency replay handling
   - Reconciliation sweeper background task for pending payment attempts
 
-- [ ] **Commit 9:** `feat: webhooks — events, signed delivery, claim/lease worker, retries`
+- [x] **Commit 9:** `feat: webhooks — events, signed delivery, claim/lease worker, retries`
   - Webhook endpoint registration (`POST /v1/webhook_endpoints`) with secret generation
   - Outbox pattern: state changes write `webhook_events` and per-endpoint `webhook_deliveries` in the same transaction
   - Claim/lease background worker delivering signed HMAC-SHA256 webhooks (`Dodo-Signature` header, timestamp + event ID replay protection) with configured backoff schedule and max attempts

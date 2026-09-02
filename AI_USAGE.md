@@ -144,3 +144,15 @@ result was checked. "The plan" = the `prompt.md` produced with Claude + ChatGPT.
   behaves. This is the "one thing to correct" for section 3.
 - Verified all of (a)–(e) by hand plus the sweeper recovery and the
   give-up-after-max-age path.
+
+### Commit 9 — webhooks
+
+- Followed the plan's claim/lease design directly. One addition of my own: a
+  `WEBHOOK_ALLOW_PRIVATE_TARGETS` flag — the plan's SSRF guard would otherwise
+  make webhook delivery untestable locally and broken under `docker compose`
+  (sibling services are on private IPs).
+- Also pulled the two duplicated random-hex helpers (API keys, webhook secrets)
+  into one `secret::hex(n)`.
+- **Verified** by pointing deliveries at a Python receiver that recomputes the
+  HMAC — signatures matched for both event types. SSRF blocks and the retry
+  backoff checked separately.
