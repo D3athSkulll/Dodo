@@ -18,6 +18,7 @@ Keyed by commit subject (`git log --oneline`), since hashes shift on rebase.
 
 | Commit | Added |
 |--------|-------|
+| add integration tests | `tests/` on real Postgres (`#[sqlx::test]`, isolated DB per test) running the app + mock PSP in-process: `concurrency` (20 concurrent pays → one charge), `idempotency` (replay, no 2nd charge), `psp_failure` (`tok_timeout` settled by the sweeper; `tok_network_error` fails cleanly), `concurrent_timeout` (20 timeouts → one in-flight charge). `mock-psp` is now lib + bin. |
 | add webhooks | `POST /v1/webhook_endpoints` (best-effort SSRF guard, secret returned once). Delivery worker (claim/lease, no lock during POST) signs each payload — `Dodo-Signature: t=<unix>,v1=hmac_sha256(secret,"<t>.<body>")` + `Dodo-Event-Id` — and retries on failure with `1m,5m,30m,2h,6h` backoff to `exhausted` at 6 attempts. Reconciliation via `GET /v1/webhook_events` and `GET /v1/webhook_deliveries?status=`. New env: `WEBHOOK_ALLOW_PRIVATE_TARGETS`. |
 | add payment attempts and reconciliation sweeper | `POST /v1/invoices/{id}/pay` (`Idempotency-Key` header required): three-phase claim / call-PSP / settle, no DB transaction around the PSP call. `GET /v1/payments/{id}`, `GET /v1/invoices/{id}/payments`. Background sweeper finishes stuck `pending` attempts by re-submitting the idempotent charge. `invoice.paid` / `invoice.payment_failed` events. Migration `0002` adds `payment_attempts.card_token`. |
 | add mock PSP | `crates/mock-psp`: `POST /charge` with deterministic per-token outcomes (`tok_success`, `tok_insufficient_funds`, `tok_card_declined`, `tok_timeout`, `tok_network_error`), idempotent on `idempotency_key`, plus `GET /_debug/charges`. Delays tunable via `MOCK_PSP_DELAY_MS` / `MOCK_PSP_TIMEOUT_MS`. |
@@ -110,12 +111,30 @@ value in the `Dodo-Signature` header (`t=` is the unix timestamp).
 
 ## Tests
 
-<!-- TODO (Commit 10) -->
-- `concurrency.rs` — N concurrent `POST /pay`, exactly one charge
-- `idempotency.rs` — same key + body replays, no second PSP call
-- `psp_failure.rs` — `tok_timeout` / `tok_network_error` never leave the invoice stuck
+```bash
+scripts/pg-dev.sh start
+DATABASE_URL=postgres://dodo:dodo@localhost:5433/dodo cargo test --workspace
+```
 
-Per-handler tests are intentionally skipped — see the note in that section.
+Each integration test gets its own database (`#[sqlx::test]`) and spins up the
+real service + mock PSP in-process on ephemeral ports.
+
+- **`concurrency.rs`** — 20 concurrent `POST /pay`, distinct keys: exactly one
+  `200`, one `succeeded` attempt, one charge at the PSP, final state `paid`.
+- **`idempotency.rs`** — same key + body twice: identical response, no second
+  PSP call.
+- **`psp_failure.rs`** — `tok_timeout` returns `202` and the sweeper settles it
+  to `paid` with one charge; `tok_network_error` ends as `failed`
+  (`psp_unreachable`) with the invoice still `open` — never stuck `pending`.
+- **`concurrent_timeout.rs`** — 20 concurrent timeouts, distinct keys: one
+  in-flight charge, one attempt row, 19 × `409`.
+- Unit tests: `Cents` overflow, the `ApiError` status map, the exhaustive
+  invoice state-transition table, API-key parsing, the webhook backoff schedule
+  and signature, the SSRF address filter, cursor round-trips.
+
+Per-handler HTTP tests are intentionally skipped: the three risk areas
+(concurrency, idempotency, PSP failure) are covered above, and the handlers are
+thin wrappers over the pieces those tests already exercise.
 
 ## API documentation
 

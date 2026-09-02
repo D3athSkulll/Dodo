@@ -31,5 +31,9 @@ tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
+# Integration tests spawn the real app + the real mock PSP in-process.
+[dev-dependencies]
+mock-psp = { path = "../mock-psp" }
+
 [lints]
 workspace = true

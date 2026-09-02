@@ -448,6 +448,44 @@ the backoff. `?status=exhausted` is empty on the happy path.
 
 ---
 
+### Commit 10 — integration tests
+
+**What shipped**
+`tests/` running against real Postgres via `#[sqlx::test]` (isolated database per
+test), with the real service router and the real mock PSP spun up in-process on
+ephemeral ports and driven by `reqwest`. `mock-psp` became lib + bin so the
+harness can embed it; `scripts/pg-dev.sh` now grants `dodo` `CREATEDB`.
+
+**The tests**
+- `concurrency` — 20 concurrent `POST /pay`, distinct keys → exactly one `200`,
+  every other response is `202`/`409`, `count(succeeded) = 1`, one charge at the
+  PSP, invoice `paid`.
+- `idempotency` — same key + body twice → byte-identical response, `charge_count
+  = 1`.
+- `psp_failure`
+  - `tok_timeout`: `202`, attempt `pending`, invoice `open`; the sweeper
+    re-submits the idempotent charge and settles it to `paid` — still one charge.
+  - `tok_network_error` with `pending_max_age = 1s`: retried, then `failed`
+    (`psp_unreachable`), invoice still `open`, never stuck `pending`.
+- `concurrent_timeout` (not spec-required) — 20 concurrent timeouts, distinct
+  keys → one `202`, nineteen `409`, one attempt row, invoice `open`, and once the
+  PSP finishes, exactly one charge. This is mechanism #2 on its own.
+
+**Design choices**
+- *In-process, not shelling out.* The service is already lib + bin; the harness
+  builds `AppState` from the `#[sqlx::test]` pool directly, so there is no env or
+  port juggling and no orphan processes.
+- *Timings are injected, not slept through.* A `Timings` struct turns the mock's
+  delays, the client PSP timeout, the sweep interval and the pending-max-age
+  down so the suite runs in ~1 minute. The sweeper's 3s idle floor is real, so
+  the timeout tests genuinely wait for it.
+- *Per-handler HTTP tests are skipped on purpose* — the three risk areas are
+  covered end to end and the handlers are thin.
+
+**Verified** — `cargo test --workspace`: 20 unit + 5 integration, all green.
+
+---
+
 ### Dev tooling — local Postgres helper  (`99f546f`)
 
 Not part of the plan. `scripts/pg-dev.sh` runs a throwaway Postgres in

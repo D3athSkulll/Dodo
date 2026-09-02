@@ -38,7 +38,8 @@ init)
     fi
     initdb -D "$PGDATA" -U postgres --auth=trust --no-locale -E UTF8 >/dev/null
     start_server
-    psql -h 127.0.0.1 -p "$PORT" -U postgres -c "create role dodo login password 'dodo'"
+    # CREATEDB so `#[sqlx::test]` can make an isolated database per test.
+    psql -h 127.0.0.1 -p "$PORT" -U postgres -c "create role dodo login password 'dodo' createdb"
     psql -h 127.0.0.1 -p "$PORT" -U postgres -c "create database dodo owner dodo"
     echo "ready: postgres://dodo:dodo@localhost:$PORT/dodo"
     ;;

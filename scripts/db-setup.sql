@@ -5,5 +5,6 @@
 --
 -- (docker compose does this for you; only needed for a bare local run.)
 
-create role dodo login password 'dodo';
+-- CREATEDB lets `#[sqlx::test]` create an isolated database per test.
+create role dodo login password 'dodo' createdb;
 create database dodo owner dodo;

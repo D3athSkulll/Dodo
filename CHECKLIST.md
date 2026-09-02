@@ -55,7 +55,7 @@ This checklist tracks the implementation of the 13 commits specified in the buil
   - Outbox pattern: state changes write `webhook_events` and per-endpoint `webhook_deliveries` in the same transaction
   - Claim/lease background worker delivering signed HMAC-SHA256 webhooks (`Dodo-Signature` header, timestamp + event ID replay protection) with configured backoff schedule and max attempts
 
-- [ ] **Commit 10:** `test: concurrency, idempotency, PSP-failure (+ concurrent-timeout)`
+- [x] **Commit 10:** `test: concurrency, idempotency, PSP-failure (+ concurrent-timeout)`
   - `concurrency.rs`: 20 concurrent payments with distinct keys resulting in exactly 1 success and 19 conflict/in-progress responses
   - `idempotency.rs`: Repeated requests with the same idempotency key replay the identical outcome
   - `psp_failure.rs`: Handles timeouts (202 response + sweeper resolution) and network errors correctly

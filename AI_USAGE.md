@@ -156,3 +156,13 @@ result was checked. "The plan" = the `prompt.md` produced with Claude + ChatGPT.
 - **Verified** by pointing deliveries at a Python receiver that recomputes the
   HMAC — signatures matched for both event types. SSRF blocks and the retry
   backoff checked separately.
+
+### Commit 10 — integration tests
+
+- Wrote the three required tests plus `concurrent_timeout`. Chose to run
+  everything in-process (`#[sqlx::test]` pool → `AppState` directly, mock PSP as
+  an embedded router) rather than shelling out to binaries — no port juggling,
+  no orphan processes.
+- Made `mock-psp` lib + bin and injected timings via a `Timings` struct so the
+  suite runs in ~1 minute without faking time.
+- All 20 unit + 5 integration tests green under `cargo test --workspace`.
