@@ -12,4 +12,7 @@ pub mod invoices;
 pub mod money;
 pub mod outbox;
 pub mod pagination;
+pub mod payments;
+pub mod psp;
+pub mod sweeper;
 pub mod telemetry;

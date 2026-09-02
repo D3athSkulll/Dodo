@@ -309,6 +309,93 @@ Each token returns its documented shape and status (`200` succeeded/failed,
 the test delay) then replays in ~90ms. `/_debug/charges` lists the four stored
 charges; the `tok_network_error` key is absent.
 
+**Fixed while building Commit 8:** `tok_timeout` originally ran its sleep inside
+the request handler, so when the client timed out and disconnected, axum
+cancelled the handler and nothing was stored — the sweeper's retry then timed out
+forever. Now the delay + store run in a detached `tokio::spawn`, like a real
+processor that finishes a charge regardless of the caller.
+
+---
+
+### Commit 8 — payment attempts and the reconciliation sweeper
+
+**The core commit.** `POST /v1/invoices/:id/pay` (requires an `Idempotency-Key`
+header), the read model (`GET /v1/payments/:id`, `GET /v1/invoices/:id/payments`),
+and the background sweeper. Migration `0002` adds `payment_attempts.card_token`.
+
+**No database transaction ever wraps the PSP HTTP call.** Three phases:
+
+1. **claim** — one short tx: `SELECT ... FOR UPDATE` the invoice, `INSERT` a
+   `pending` attempt. No external I/O.
+2. **call the PSP** — no tx open, hard 5s client timeout, `idempotency_key`
+   forwarded.
+3. **settle** — one short tx: record the outcome, `transition_invoice(open →
+   paid)` on success, write the webhook event.
+
+**Four mechanisms, each protecting one invariant**
+
+| # | Mechanism | Invariant |
+|---|-----------|-----------|
+| 1 | `UNIQUE (business_id, idempotency_key)` | the same client operation runs once; retries replay |
+| 2 | partial `UNIQUE (invoice_id) WHERE status='pending'` | at most one in-flight external charge per invoice, across different keys |
+| 3 | conditional `UPDATE ... WHERE state='open'` | at most one `open → paid`; late winners no-op |
+| 4 | PSP idempotency on `idempotency_key` | a retry after a transport-ambiguous first call does not double-charge |
+
+**Answers to (a)–(e)** — the design is built around these:
+
+- **(a) two clients, same invoice, same instant.** Both reach Phase 1. `FOR
+  UPDATE` serialises the two selects; the first to commit its `INSERT` holds the
+  only `pending` row (#2). The other's `INSERT` violates the partial unique index
+  → `409 payment_in_progress`. One PSP call, one possible `open → paid` (#3).
+- **(b) `tok_timeout`.** The 5s client timeout fires in Phase 2; Phase 3 takes
+  the `Unavailable` branch — attempt stays `pending`, invoice stays `open`,
+  response is `202 {attempt_id}` + `Retry-After`. The caller polls
+  `GET /v1/payments/:id` or waits for `invoice.paid`. The sweeper re-submits the
+  idempotent charge; the mock has by then stored the outcome, so it replays
+  `succeeded` and the sweeper settles → `paid`.
+- **(c) PSP succeeded, service crashed before Phase 3.** The `pending` row was
+  committed in Phase 1, *before* the PSP call. The sweeper re-POSTs `/charge`
+  with the same key; the mock returns the same `psp_ref` (#4). Phase 3 runs once
+  → `paid`. Charged exactly once.
+- **(d) same key, different body.** `request_fingerprint`
+  (`sha256(invoice_id | card_token)`) mismatches the stored one → `409
+  idempotency_key_conflict`, no PSP call, no state change.
+- **(e) `POST /pay` on a `paid` invoice.** Phase 1 reads `state = 'paid'` under
+  the lock. If the request's key matches the succeeded attempt → replay that
+  `200`. Otherwise → `409 invoice_not_open`. Never a PSP call.
+
+**Sweeper.** A Tokio task every `PAYMENT_SWEEP_INTERVAL_MS`. Claims `pending`
+attempts idle ≥ 3s with `FOR UPDATE SKIP LOCKED`, bumps `updated_at`, commits
+(releases the lock), *then* re-charges — no external I/O inside the claim tx.
+Runs Phase 3 on the result. If an attempt is still failing past
+`PAYMENT_PENDING_MAX_AGE_SECONDS`, it is failed with `psp_unreachable` and the
+invoice stays `open` (retryable with a new key). Aborted on shutdown — it is
+idempotent and resumes on the next start.
+
+**Deviation from the plan.** The plan stored only `request_fingerprint`, not the
+card token. The sweeper needs the token to re-submit `/charge` in the case where
+the *first* call never reached the PSP, so `0002` adds a `card_token` column.
+`request_fingerprint` is kept for case (d).
+
+**Idempotency response model.** Operation-based, not HTTP-replay. The same key
+maps to the same `payment_attempts` row; the response *evolves* (`202 pending` →
+later `200 succeeded` / `402 failed`). We store `status` / `psp_ref` /
+`failure_code`, enough to render any later response — not a frozen status+body.
+
+**Verified** (two processes, dev cluster, shortened timers)
+- happy path: `tok_success` → `200`, invoice `paid`, one charge, `invoice.paid`.
+- idempotent replay (same key + body) → identical `200` body, no second charge.
+- `tok_card_declined` → `402`, invoice stays `open`, `invoice.payment_failed`.
+- missing `Idempotency-Key` → `422`.
+- same key, different token → `409 idempotency_key_conflict`.
+- `POST /pay` on a paid invoice, new key → `409 invoice_not_open`.
+- `tok_timeout` → `202 pending`; ~6s later the sweeper settles it to `paid` with
+  **exactly one** charge at the mock.
+- `tok_network_error` with `PAYMENT_PENDING_MAX_AGE_SECONDS=2` → attempt failed
+  `psp_unreachable`, invoice still `open`, never stuck.
+- two concurrent pays, different keys → one `200` (`paid`), one `409
+  payment_in_progress`; **one** `succeeded` attempt row, one charge.
+
 ---
 
 ### Dev tooling — local Postgres helper  (`99f546f`)

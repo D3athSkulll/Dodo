@@ -92,48 +92,54 @@ async fn charge(State(state): State<AppState>, Json(req): Json<ChargeRequest>) -
         return (StatusCode::OK, Json(charge_body(&existing))).into_response();
     }
 
-    // Decide + delay with no lock held.
-    let decided = match req.card_token.as_str() {
-        "tok_success" => {
-            sleep(state.fast_delay).await;
-            Ok(succeeded())
-        }
-        "tok_insufficient_funds" => {
-            sleep(state.fast_delay).await;
-            Ok(failed("insufficient_funds"))
-        }
-        "tok_card_declined" => {
-            sleep(state.fast_delay).await;
-            Ok(failed("card_declined"))
-        }
-        "tok_timeout" => {
-            sleep(state.timeout_delay).await;
-            Ok(succeeded())
-        }
-        "tok_network_error" => Err((StatusCode::INTERNAL_SERVER_ERROR, "network_error")),
-        _ => Err((StatusCode::UNPROCESSABLE_ENTITY, "unknown_token")),
+    let (delay, decided) = match req.card_token.as_str() {
+        "tok_success" => (state.fast_delay, Ok(succeeded())),
+        "tok_insufficient_funds" => (state.fast_delay, Ok(failed("insufficient_funds"))),
+        "tok_card_declined" => (state.fast_delay, Ok(failed("card_declined"))),
+        "tok_timeout" => (state.timeout_delay, Ok(succeeded())),
+        "tok_network_error" => (
+            Duration::ZERO,
+            Err((StatusCode::INTERNAL_SERVER_ERROR, "network_error")),
+        ),
+        _ => (
+            Duration::ZERO,
+            Err((StatusCode::UNPROCESSABLE_ENTITY, "unknown_token")),
+        ),
     };
 
-    match decided {
-        Ok((status, psp_ref, code)) => {
-            let mut charges = state.charges.lock().unwrap();
-            // If a concurrent retry with this key already landed, return that.
-            let stored = charges
-                .entry(req.idempotency_key.clone())
-                .or_insert(StoredCharge {
-                    idempotency_key: req.idempotency_key.clone(),
-                    card_token: req.card_token.clone(),
-                    status,
-                    psp_ref,
-                    code,
-                })
-                .clone();
-            (StatusCode::OK, Json(charge_body(&stored))).into_response()
-        }
-        // A 500 / 422 is not a completed charge — store nothing, so a retry
-        // gets a fresh decision.
-        Err((code, message)) => (code, Json(json!({ "code": message }))).into_response(),
-    }
+    let (status, psp_ref, code) = match decided {
+        Ok(outcome) => outcome,
+        // A 500 / 422 is not a completed charge — store nothing so a retry gets a
+        // fresh decision.
+        Err((code, message)) => return (code, Json(json!({ "code": message }))).into_response(),
+    };
+
+    // Run the delay + store in a detached task: a real processor finishes a
+    // charge even if the caller hangs up, and `tok_timeout` depends on that — the
+    // client times out but the outcome is still recorded, so the sweeper's retry
+    // gets the stored replay.
+    let charges = state.charges.clone();
+    let key = req.idempotency_key.clone();
+    let card_token = req.card_token.clone();
+    let stored = tokio::spawn(async move {
+        sleep(delay).await;
+        charges
+            .lock()
+            .unwrap()
+            .entry(key.clone())
+            .or_insert(StoredCharge {
+                idempotency_key: key,
+                card_token,
+                status,
+                psp_ref,
+                code,
+            })
+            .clone()
+    })
+    .await
+    .expect("charge task should not panic");
+
+    (StatusCode::OK, Json(charge_body(&stored))).into_response()
 }
 
 async fn debug_charges(State(state): State<AppState>) -> Json<Vec<serde_json::Value>> {

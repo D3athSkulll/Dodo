@@ -18,6 +18,7 @@ Keyed by commit subject (`git log --oneline`), since hashes shift on rebase.
 
 | Commit | Added |
 |--------|-------|
+| add payment attempts and reconciliation sweeper | `POST /v1/invoices/{id}/pay` (`Idempotency-Key` header required): three-phase claim / call-PSP / settle, no DB transaction around the PSP call. `GET /v1/payments/{id}`, `GET /v1/invoices/{id}/payments`. Background sweeper finishes stuck `pending` attempts by re-submitting the idempotent charge. `invoice.paid` / `invoice.payment_failed` events. Migration `0002` adds `payment_attempts.card_token`. |
 | add mock PSP | `crates/mock-psp`: `POST /charge` with deterministic per-token outcomes (`tok_success`, `tok_insufficient_funds`, `tok_card_declined`, `tok_timeout`, `tok_network_error`), idempotent on `idempotency_key`, plus `GET /_debug/charges`. Delays tunable via `MOCK_PSP_DELAY_MS` / `MOCK_PSP_TIMEOUT_MS`. |
 | add invoices and invoice state machine | `POST/GET/LIST /v1/invoices` with server-computed totals, `state` filter, `POST .../void` and `.../mark-uncollectible`. State machine `open` → `paid`/`void`/`uncollectible` (all terminal), enforced by a conditional `UPDATE`. `invoice.created` written to the webhook outbox in the same transaction as the insert. |
 | add customers endpoints | `POST/GET/LIST /v1/customers`, business-scoped, keyset pagination with an opaque cursor. `/v1/*` now requires an API key. |
@@ -85,11 +86,19 @@ curl -s -H "$AUTH" -H 'content-type: application/json' -d '{
 
 curl -s -H "$AUTH" localhost:8080/v1/invoices/<id>
 curl -s -H "$AUTH" 'localhost:8080/v1/invoices?state=open'
-curl -s -H "$AUTH" -X POST localhost:8080/v1/invoices/<id>/void
+
+# pay it — the Idempotency-Key header is required; retrying with the same key is safe
+curl -s -H "$AUTH" -H 'content-type: application/json' -H 'Idempotency-Key: pay-1' \
+  -d '{"card_token":"tok_success"}' localhost:8080/v1/invoices/<id>/pay      # -> 200, invoice paid
+
+# a declined card
+curl -s -H "$AUTH" -H 'content-type: application/json' -H 'Idempotency-Key: pay-2' \
+  -d '{"card_token":"tok_card_declined"}' localhost:8080/v1/invoices/<other-id>/pay  # -> 402
+
+curl -s -H "$AUTH" localhost:8080/v1/invoices/<id>/payments
 ```
 
-Still to come: pay with `tok_success` → `paid`, pay with `tok_card_declined` →
-`402`, then `GET /v1/webhook_deliveries` for the fan-out.
+Still to come: `GET /v1/webhook_deliveries` for the signed fan-out.
 
 ## Tests
 

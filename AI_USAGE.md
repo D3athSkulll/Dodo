@@ -129,3 +129,18 @@ result was checked. "The plan" = the `prompt.md` produced with Claude + ChatGPT.
 - **Verified with curl:** every token's shape/status, idempotent replay returning
   the same `psp_ref` with no re-delay (including `tok_timeout`), and
   `/_debug/charges` omitting the `tok_network_error` key.
+
+### Commit 8 — payment attempts + reconciliation sweeper
+
+- **Gap in the plan I had to close:** the plan stored only
+  `request_fingerprint`, never the card token. But the sweeper re-submits
+  `/charge` and needs the token whenever the *first* call didn't reach the PSP.
+  Added a `card_token` column (migration `0002`); kept `request_fingerprint` for
+  the "same key, different body" check.
+- **Bug found while testing, not from AI review:** the mock ran `tok_timeout`'s
+  sleep inside the request handler, so a client disconnect cancelled it and
+  nothing was stored — the sweeper then retried forever. Fixed by moving the
+  delay + store into a detached task, which is also how a real processor
+  behaves. This is the "one thing to correct" for section 3.
+- Verified all of (a)–(e) by hand plus the sweeper recovery and the
+  give-up-after-max-age path.

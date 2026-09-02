@@ -42,7 +42,7 @@ This checklist tracks the implementation of the 13 commits specified in the buil
   - Token behaviors (`tok_success`, `tok_insufficient_funds`, `tok_card_declined`, `tok_timeout`, `tok_network_error`)
   - Deterministic in-memory idempotency cache on `idempotency_key`
 
-- [ ] **Commit 8:** `feat: payment attempts — claim, call PSP, settle; + reconciliation sweeper`
+- [x] **Commit 8:** `feat: payment attempts — claim, call PSP, settle; + reconciliation sweeper`
   - 3-phase payment execution (`POST /v1/invoices/:id/pay` with `Idempotency-Key` header):
     1. Claim (short transaction, request fingerprinting, duplicate/concurrency checks using partial unique indexes)
     2. Call PSP with hard 5s timeout (no open transaction)
