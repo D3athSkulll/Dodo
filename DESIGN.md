@@ -539,6 +539,21 @@ reviewer's `docker compose up` is the real check.
 
 ---
 
+### Housekeeping — demo data seeder
+
+`invoice-service demo` (`src/demo.rs`) inserts, in one transaction: one business
++ API key, three customers, one invoice in each of the four states with line
+items and payment attempts, a webhook endpoint, and the `invoice.created` /
+`invoice.paid` / `invoice.payment_failed` events plus their deliveries (one
+`delivered`, one `exhausted`, the rest `pending`). The endpoint is left
+`active = false` so the delivery worker leaves the seeded state alone. Totals are
+computed the same integer way the API computes them. Additive — each run makes a
+fresh independent business. Also a `demo` profile in `docker-compose.yml`.
+**Verified** against the dev cluster: every read route returns the seeded data;
+running the workers for a few seconds does not disturb it.
+
+---
+
 ### Housekeeping — Postman collection
 
 `postman/` holds a collection that walks the whole API with assertions on the

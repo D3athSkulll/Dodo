@@ -50,6 +50,18 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # Opt-in: `docker compose --profile demo run --rm demo` seeds a spread of
+  # sample data (customers, invoices in every state, payments, webhook events).
+  demo:
+    build: .
+    command: ["invoice-service", "demo"]
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: ["demo"]
+    restart: "no"
+
   app:
     build: .
     command: ["invoice-service"]

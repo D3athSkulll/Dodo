@@ -13,6 +13,8 @@
 //! auth             API-key middleware + the `Business` extractor
 //! psp              outbound client for the payment processor
 //!
+//! demo             `invoice-service demo` — sample data for every read route
+//!
 //! routes/          HTTP handlers, one module per resource, plus `router()`
 //! domain/          business rules: the invoice state machine, the webhook outbox
 //! workers/         background tasks: payment reconciliation, webhook delivery
@@ -23,6 +25,7 @@
 
 pub mod auth;
 pub mod config;
+pub mod demo;
 pub mod error;
 pub mod money;
 pub mod pagination;

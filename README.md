@@ -18,6 +18,7 @@ Keyed by commit subject (`git log --oneline`), since hashes shift on rebase.
 
 | Commit | Added |
 |--------|-------|
+| add demo data seeder | `invoice-service demo` populates one business + key, 3 customers, an invoice in every state with line items and payment attempts, a webhook endpoint, and the resulting events/deliveries — so every read route returns real data immediately. Also a `demo` compose profile. |
 | add Postman collection | `postman/` — a collection that walks the whole API with assertions (status, error envelope, state transitions, idempotency). Runs via the Postman Runner or `newman`; 31 requests / 55 assertions. |
 | add Dockerfile and docker-compose | Multi-stage `Dockerfile` (cargo-chef dep caching, rustls, non-root) building both binaries into one image. `docker-compose.yml`: `db` (healthchecked), `mock-psp`, `seed` (one-shot, logs the key), `app` (port 8080), one named volume, all env inline. |
 | modularise the source tree | No behaviour change. Flat `src/*.rs` grouped into `routes/` (HTTP handlers + router assembly), `domain/` (state machine, outbox), `workers/` (sweeper, webhook delivery); cross-cutting leaves stay at the root. `lib.rs` opens with a map of the layout. |

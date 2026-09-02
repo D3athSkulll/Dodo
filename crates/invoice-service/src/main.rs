@@ -1,10 +1,13 @@
-//! Binary entrypoint. `invoice-service` serves; `invoice-service seed` creates
-//! one business + API key and prints the key once.
+//! Binary entrypoint.
+//!
+//! * `invoice-service`        — serve.
+//! * `invoice-service seed`   — create one business + API key, print it.
+//! * `invoice-service demo`   — seed a spread of sample data for exploring the API.
 
 use invoice_service::{
     auth,
     config::Config,
-    routes, state, telemetry,
+    demo, routes, state, telemetry,
     workers::{payment_sweeper, webhook_delivery},
 };
 
@@ -14,6 +17,7 @@ async fn main() {
 
     let result = match std::env::args().nth(1).as_deref() {
         Some("seed") => seed().await,
+        Some("demo") => run_demo().await,
         _ => serve().await,
     };
 
@@ -57,6 +61,22 @@ async fn seed() -> Result<(), Box<dyn std::error::Error>> {
     // Printed once, to stdout. This is the only time the full key exists.
     println!("business_id {business_id}");
     println!("api_key     {token}");
+
+    Ok(())
+}
+
+async fn run_demo() -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config::from_env()?;
+    let pool = state::connect_pool(&config).await?;
+    sqlx::migrate!().run(&pool).await?;
+
+    let d = demo::run(&pool).await?;
+    // Copy-paste straight into a shell.
+    println!("export API_KEY={}", d.api_key);
+    println!("export BUSINESS_ID={}", d.business_id);
+    println!("export CUSTOMER_ID={}", d.customer_id);
+    println!("export OPEN_INVOICE_ID={}", d.open_invoice_id);
+    println!("export PAID_INVOICE_ID={}", d.paid_invoice_id);
 
     Ok(())
 }
