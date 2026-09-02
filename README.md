@@ -18,6 +18,7 @@ Keyed by commit subject (`git log --oneline`), since hashes shift on rebase.
 
 | Commit | Added |
 |--------|-------|
+| add Dockerfile and docker-compose | Multi-stage `Dockerfile` (cargo-chef dep caching, rustls, non-root) building both binaries into one image. `docker-compose.yml`: `db` (healthchecked), `mock-psp`, `seed` (one-shot, logs the key), `app` (port 8080), one named volume, all env inline. |
 | modularise the source tree | No behaviour change. Flat `src/*.rs` grouped into `routes/` (HTTP handlers + router assembly), `domain/` (state machine, outbox), `workers/` (sweeper, webhook delivery); cross-cutting leaves stay at the root. `lib.rs` opens with a map of the layout. |
 | add integration tests | `tests/` on real Postgres (`#[sqlx::test]`, isolated DB per test) running the app + mock PSP in-process: `concurrency` (20 concurrent pays → one charge), `idempotency` (replay, no 2nd charge), `psp_failure` (`tok_timeout` settled by the sweeper; `tok_network_error` fails cleanly), `concurrent_timeout` (20 timeouts → one in-flight charge). `mock-psp` is now lib + bin. |
 | add webhooks | `POST /v1/webhook_endpoints` (best-effort SSRF guard, secret returned once). Delivery worker (claim/lease, no lock during POST) signs each payload — `Dodo-Signature: t=<unix>,v1=hmac_sha256(secret,"<t>.<body>")` + `Dodo-Event-Id` — and retries on failure with `1m,5m,30m,2h,6h` backoff to `exhausted` at 6 attempts. Reconciliation via `GET /v1/webhook_events` and `GET /v1/webhook_deliveries?status=`. New env: `WEBHOOK_ALLOW_PRIVATE_TARGETS`. |
@@ -33,12 +34,17 @@ Keyed by commit subject (`git log --oneline`), since hashes shift on rebase.
 
 ## Run
 
-<!-- TODO (Commit 11): one-command `docker compose up` -->
+```bash
+docker compose up --build
+docker compose logs seed          # copy the `api_key` line
+curl -i localhost:8080/healthz    # 200
+```
 
-Toolchain: Rust 1.98 stable (any host). No `rust-toolchain.toml` — cargo uses
-your default stable; the Docker build pins via the `rust:1.98` base image.
+`docker compose up` starts Postgres, the mock PSP, and the service; migrations
+run on boot. The `seed` container creates one business + API key and prints it,
+then exits.
 
-### Local Postgres, no Docker
+### Without Docker (local Postgres)
 
 ```bash
 psql -U postgres -f scripts/db-setup.sql          # create role + db `dodo`
@@ -48,12 +54,9 @@ cargo run -p invoice-service seed                 # create a business + API key,
 cargo run -p invoice-service                      # runs migrations on startup, then serves
 ```
 
-Check it:
-
-```bash
-curl -i localhost:8080/healthz     # 200 while the process is up
-curl -i localhost:8080/readyz      # 200 only while Postgres is reachable
-```
+`curl -i localhost:8080/readyz` is `200` only while Postgres is reachable
+(`/healthz` stays up regardless). Toolchain: Rust 1.98 stable, any host — no
+`rust-toolchain.toml`; the Docker build pins via the `rust:1.98` base image.
 
 Send the key as `Authorization: Bearer dodo_<key_id>_<secret>` on `/v1/*` routes.
 

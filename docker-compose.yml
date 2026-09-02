@@ -1,0 +1,66 @@
+# `docker compose up` — brings up Postgres, the mock PSP, and the service, runs
+# migrations on boot, and prints a ready-to-use API key in the `seed` logs.
+#
+#   docker compose up --build
+#   docker compose logs seed        # copy the api_key line
+#   curl localhost:8080/healthz
+
+x-app-env: &app-env
+  DATABASE_URL: postgres://dodo:dodo@db:5432/dodo
+  PSP_BASE_URL: http://mock-psp:9090
+  PSP_TIMEOUT_MS: "5000"
+  BIND_ADDR: 0.0.0.0:8080
+  WEBHOOK_WORKER_INTERVAL_MS: "1000"
+  WEBHOOK_LEASE_SECONDS: "30"
+  PAYMENT_SWEEP_INTERVAL_MS: "2000"
+  PAYMENT_PENDING_MAX_AGE_SECONDS: "300"
+  # Sibling services resolve to private container IPs, so the SSRF guard has to
+  # allow them here. Keep this false in production.
+  WEBHOOK_ALLOW_PRIVATE_TARGETS: "true"
+  RUST_LOG: info,invoice_service=debug
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dodo
+      POSTGRES_PASSWORD: dodo
+      POSTGRES_DB: dodo
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dodo -d dodo"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+
+  mock-psp:
+    build: .
+    command: ["mock-psp"]
+    environment:
+      MOCK_PSP_BIND_ADDR: 0.0.0.0:9090
+
+  # One-shot: creates a business + API key and prints it, then exits.
+  seed:
+    build: .
+    command: ["invoice-service", "seed"]
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build: .
+    command: ["invoice-service"]
+    environment: *app-env
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      mock-psp:
+        condition: service_started
+
+volumes:
+  dbdata:

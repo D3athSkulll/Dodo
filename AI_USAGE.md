@@ -172,3 +172,12 @@ result was checked. "The plan" = the `prompt.md` produced with Claude + ChatGPT.
 - Grouped the flat module list into `routes/`, `domain/`, `workers/` with
   cross-cutting leaves at the root, and put a layout map at the top of `lib.rs`.
   All renames, no logic change; tests still green.
+
+### Commit 11 — Docker
+
+- Standard cargo-chef multi-stage build, one image for both binaries, non-root
+  runtime. Dropped the plan's `.sqlx` offline cache — with every query unchecked
+  there is nothing to prepare and the build needs no database.
+- **Not run:** Docker is not installed on this machine. The compose file is
+  schema-valid (parsed) and the Dockerfile is the conventional pattern, but the
+  actual `docker compose up` is unverified here.

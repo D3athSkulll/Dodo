@@ -508,6 +508,37 @@ this map so a new reader knows where to look. `app.rs` split into `state.rs`
 
 ---
 
+### Commit 11 — Dockerfile and docker-compose
+
+**What shipped**
+A multi-stage `Dockerfile` and a `docker-compose.yml` that brings the whole
+system up with one command.
+
+**Design choices**
+- *One image, both binaries.* `invoice-service` and `mock-psp` share a build;
+  compose picks which with `command:`.
+- *cargo-chef* caches the dependency compile as its own layer, so source edits
+  rebuild in seconds.
+- *rustls everywhere* (reqwest, sqlx), so the image needs no OpenSSL /
+  `libssl-dev` — just `ca-certificates` for outbound HTTPS webhooks. Runtime is
+  `debian:bookworm-slim`, non-root.
+- *No `.sqlx` offline cache.* The plan expected one, but every query in the
+  service is unchecked `sqlx::query`, so `cargo build` needs no database and
+  there is nothing to prepare. Migrations are embedded by `sqlx::migrate!()` at
+  compile time, so the runtime image carries no SQL files.
+- *Compose:* `db` is healthchecked and `app` / `seed` wait on it; `seed` is a
+  one-shot that prints the API key to its logs and exits; one named volume for
+  Postgres data; all env is inline in the compose file (the `.env.example`
+  values), so `docker compose up` needs nothing else. `WEBHOOK_ALLOW_PRIVATE_
+  TARGETS=true` there because sibling services are on private container IPs.
+
+**Not verified locally.** Docker is not installed on the build machine, so the
+image build and `docker compose up` were not run here — the compose file is
+schema-valid and the Dockerfile follows the standard cargo-chef pattern, but the
+reviewer's `docker compose up` is the real check.
+
+---
+
 ### Dev tooling — local Postgres helper  (`99f546f`)
 
 Not part of the plan. `scripts/pg-dev.sh` runs a throwaway Postgres in

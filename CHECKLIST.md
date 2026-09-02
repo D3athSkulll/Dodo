@@ -61,7 +61,7 @@ This checklist tracks the implementation of the 13 commits specified in the buil
   - `psp_failure.rs`: Handles timeouts (202 response + sweeper resolution) and network errors correctly
   - State machine transition unit tests
 
-- [ ] **Commit 11:** `chore: dockerfiles and docker-compose`
+- [x] **Commit 11:** `chore: dockerfiles and docker-compose`
   - Multi-stage `Dockerfile` (cargo-chef caching) and committed `.sqlx/` offline data
   - `docker-compose.yml` linking Postgres DB, seed container, mock PSP, and invoice service (with automatic startup migrations)
 

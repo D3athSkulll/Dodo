@@ -1,7 +1,7 @@
-# Keep the build context small and cache-friendly. The Dockerfile only needs the
-# workspace sources, Cargo manifests, migrations, and the committed .sqlx cache.
+# Keep the build context small and cache-friendly. The Dockerfile needs only the
+# workspace sources, Cargo manifests, and the migrations directory.
 /target
 /.git
+/.pgdata
 .env
 **/*.md
-!README.md
