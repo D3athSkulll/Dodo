@@ -566,6 +566,15 @@ integration tests where they can be controlled.
 
 ---
 
+### Housekeeping — README finish + doc split
+
+The README was finished (run guide, quickstart, project layout, feature log,
+results). The API reference / sample requests / responses / test matrix moved to
+`TESTING.md` to keep the README scannable. `DESIGN.md` and `AI_USAGE.md` final
+prose is left for the author.
+
+---
+
 ### Dev tooling — local Postgres helper  (`99f546f`)
 
 Not part of the plan. `scripts/pg-dev.sh` runs a throwaway Postgres in
