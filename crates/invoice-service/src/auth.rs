@@ -18,7 +18,7 @@ use sqlx::PgPool;
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
-use crate::{app::AppState, error::ApiError};
+use crate::{error::ApiError, state::AppState};
 
 const TOKEN_PREFIX: &str = "dodo";
 

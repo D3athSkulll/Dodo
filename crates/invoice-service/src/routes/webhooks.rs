@@ -1,7 +1,7 @@
 //! Webhook endpoint registration and the reconciliation read endpoints.
 //!
 //! Delivery itself is decoupled: domain state changes only *insert* rows into
-//! the outbox (see [`crate::outbox`]); [`crate::webhook_worker`] does the HTTP.
+//! the outbox (see [`crate::domain::outbox`]); [`crate::workers::webhook_delivery`] does the HTTP.
 
 use std::net::{IpAddr, SocketAddr};
 
@@ -17,11 +17,11 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    app::AppState,
     auth::Business,
     error::{ApiError, FieldError},
     pagination::{clamp_limit, Cursor, Page},
     secret,
+    state::AppState,
 };
 
 pub fn routes() -> Router<AppState> {

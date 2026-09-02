@@ -9,7 +9,7 @@
 //!    succeeded, write the webhook event.
 //!
 //! A crash between phases leaves a `pending` attempt that the reconciliation
-//! sweeper ([`crate::sweeper`]) finishes — re-submitting the same idempotent
+//! sweeper ([`crate::workers::payment_sweeper`]) finishes — re-submitting the same idempotent
 //! charge, so the customer is charged at most once.
 
 use axum::{
@@ -27,12 +27,12 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    app::AppState,
     auth::Business,
+    domain::invoice_state::{transition_invoice, InvoiceState},
+    domain::outbox,
     error::{ApiError, FieldError},
-    invoice_state::{transition_invoice, InvoiceState},
-    outbox,
     psp::{self, ChargeOutcome},
+    state::AppState,
 };
 
 pub fn routes() -> Router<AppState> {

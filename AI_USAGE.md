@@ -166,3 +166,9 @@ result was checked. "The plan" = the `prompt.md` produced with Claude + ChatGPT.
 - Made `mock-psp` lib + bin and injected timings via a `Timings` struct so the
   suite runs in ~1 minute without faking time.
 - All 20 unit + 5 integration tests green under `cargo test --workspace`.
+
+### Housekeeping — modularise the source tree
+
+- Grouped the flat module list into `routes/`, `domain/`, `workers/` with
+  cross-cutting leaves at the root, and put a layout map at the top of `lib.rs`.
+  All renames, no logic change; tests still green.

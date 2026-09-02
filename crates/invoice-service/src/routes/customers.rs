@@ -12,10 +12,10 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    app::AppState,
     auth::Business,
     error::{ApiError, FieldError},
     pagination::{clamp_limit, Cursor, Page},
+    state::AppState,
 };
 
 pub fn routes() -> Router<AppState> {

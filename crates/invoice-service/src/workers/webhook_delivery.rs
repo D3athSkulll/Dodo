@@ -21,7 +21,7 @@ use time::OffsetDateTime;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-use crate::app::AppState;
+use crate::state::AppState;
 
 type HmacSha256 = Hmac<Sha256>;
 

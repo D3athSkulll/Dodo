@@ -14,13 +14,13 @@ use time::{macros::format_description, Date, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::{
-    app::AppState,
     auth::Business,
+    domain::invoice_state::{transition_invoice, InvoiceState},
+    domain::outbox,
     error::{ApiError, FieldError},
-    invoice_state::{transition_invoice, InvoiceState},
     money::Cents,
-    outbox,
     pagination::{clamp_limit, Cursor, Page},
+    state::AppState,
 };
 
 const MAX_LINE_ITEMS: usize = 500;

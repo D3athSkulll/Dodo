@@ -1,7 +1,12 @@
 //! Binary entrypoint. `invoice-service` serves; `invoice-service seed` creates
 //! one business + API key and prints the key once.
 
-use invoice_service::{app, auth, config::Config, sweeper, telemetry, webhook_worker};
+use invoice_service::{
+    auth,
+    config::Config,
+    routes, state, telemetry,
+    workers::{payment_sweeper, webhook_delivery},
+};
 
 #[tokio::main]
 async fn main() {
@@ -20,23 +25,23 @@ async fn main() {
 
 async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
-    let pool = app::connect_pool(&config).await?;
+    let pool = state::connect_pool(&config).await?;
 
     // Single service, single writer, so migrations run on the way up.
     sqlx::migrate!().run(&pool).await?;
 
     let bind = config.bind_addr.clone();
-    let state = app::build_state(pool, config);
+    let app_state = state::build_state(pool, config);
 
     // Background workers. Both are idempotent and resume on the next start, so
     // they are simply aborted on shutdown.
-    sweeper::spawn(state.clone());
-    webhook_worker::spawn(state.clone());
+    payment_sweeper::spawn(app_state.clone());
+    webhook_delivery::spawn(app_state.clone());
 
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!(%bind, "listening");
 
-    axum::serve(listener, app::router(state))
+    axum::serve(listener, routes::router(app_state))
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
@@ -45,7 +50,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn seed() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
-    let pool = app::connect_pool(&config).await?;
+    let pool = state::connect_pool(&config).await?;
     sqlx::migrate!().run(&pool).await?;
 
     let (business_id, token) = auth::seed(&pool).await?;

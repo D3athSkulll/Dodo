@@ -486,6 +486,28 @@ harness can embed it; `scripts/pg-dev.sh` now grants `dodo` `CREATEDB`.
 
 ---
 
+### Housekeeping — modularise the source tree
+
+Pure move commit, no behaviour change. The 18 flat `src/*.rs` files became:
+
+```text
+src/
+  money · config · error · telemetry · secret · pagination   cross-cutting leaves
+  state.rs      AppState, the pool, the HTTP client
+  auth.rs       API-key middleware + Business extractor + seed
+  psp.rs        outbound payment-processor client
+  routes/       HTTP handlers (customers, invoices, payments, webhooks, health)
+                + mod.rs, which is the only place the router is assembled
+  domain/       invoice_state (the machine) + outbox (the webhook write)
+  workers/      payment_sweeper + webhook_delivery
+```
+
+`git` tracked every file as a rename, so history follows. `lib.rs` now opens with
+this map so a new reader knows where to look. `app.rs` split into `state.rs`
+(state) and `routes/mod.rs` (wiring).
+
+---
+
 ### Dev tooling — local Postgres helper  (`99f546f`)
 
 Not part of the plan. `scripts/pg-dev.sh` runs a throwaway Postgres in

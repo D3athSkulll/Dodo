@@ -2,7 +2,7 @@
 
 use axum::{extract::State, http::StatusCode};
 
-use crate::app::AppState;
+use crate::state::AppState;
 
 /// Liveness: the process is up. No dependency checks on purpose — a slow
 /// database must not get a healthy process restarted.

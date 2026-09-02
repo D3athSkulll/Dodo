@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use invoice_service::{app, auth, config::Config};
+use invoice_service::{auth, config::Config, routes, state};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -74,12 +74,12 @@ pub async fn spawn_with(pool: PgPool, t: Timings) -> TestApp {
         payment_pending_max_age: t.pending_max_age,
         webhook_allow_private_targets: true,
     };
-    let state = app::build_state(pool.clone(), config);
-    invoice_service::sweeper::spawn(state.clone());
+    let state = state::build_state(pool.clone(), config);
+    invoice_service::workers::payment_sweeper::spawn(state.clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let router = app::router(state);
+    let router = routes::router(state);
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });

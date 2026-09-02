@@ -17,7 +17,7 @@ use time::OffsetDateTime;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-use crate::{app::AppState, payments, psp};
+use crate::{psp, routes::payments, state::AppState};
 
 /// Only attempts idle at least this long are swept, so a request still in its
 /// own Phase 3 is never touched.
@@ -130,7 +130,7 @@ async fn give_up(pool: &PgPool, a: &Stale, detail: &str) -> Result<(), sqlx::Err
     .await?;
 
     if updated.rows_affected() == 1 {
-        crate::outbox::emit(
+        crate::domain::outbox::emit(
             &mut tx,
             a.business_id,
             "invoice.payment_failed",
