@@ -119,3 +119,13 @@ result was checked. "The plan" = the `prompt.md` produced with Claude + ChatGPT.
 - **Verified with curl:** server-computed total, all validation paths, get with
   line items, list by state, void / re-void 409, and the `invoice.created`
   outbox row written in the same transaction.
+
+### Commit 7 — mock PSP
+
+- Straight implementation of the plan's spec table. The one judgement call:
+  `tok_network_error` is a deterministic always-500 rather than "500 or a socket
+  drop, alternating" — reproducible failures matter more than exercising the
+  raw-socket path, and `tok_timeout` already gives the ambiguous shape.
+- **Verified with curl:** every token's shape/status, idempotent replay returning
+  the same `psp_ref` with no re-delay (including `tok_timeout`), and
+  `/_debug/charges` omitting the `tok_network_error` key.

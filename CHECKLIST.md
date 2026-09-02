@@ -37,7 +37,7 @@ This checklist tracks the implementation of the 13 commits specified in the buil
   - State machine actions: `POST /v1/invoices/:id/void`, `POST /v1/invoices/:id/mark-uncollectible`
   - Conditional `UPDATE` enforcement (`transition_invoice` helper) and exhaustive state transition unit test
 
-- [ ] **Commit 7:** `feat: mock PSP`
+- [x] **Commit 7:** `feat: mock PSP`
   - Workspace binary `crates/mock-psp` with route `POST /charge` and debug endpoint `GET /_debug/charges`
   - Token behaviors (`tok_success`, `tok_insufficient_funds`, `tok_card_declined`, `tok_timeout`, `tok_network_error`)
   - Deterministic in-memory idempotency cache on `idempotency_key`

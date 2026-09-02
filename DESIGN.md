@@ -278,6 +278,39 @@ voiding again → `409 invalid_state_transition from void to void`;
 
 ---
 
+### Commit 7 — mock PSP
+
+**What shipped**
+`crates/mock-psp`: a second binary, one real route `POST /charge`, plus
+`GET /_debug/charges` for tests.
+
+**Design choices**
+- *Outcome is a pure function of the card token* — deterministic, so tests are
+  reproducible. `tok_network_error` is **always** an immediate HTTP 500 (no
+  alternation, no socket drop); `tok_timeout` covers the slow / ambiguous shape.
+- *Idempotent on `idempotency_key`* via an in-memory map. A repeat returns the
+  stored outcome with no delay and no re-decision — this is what makes the
+  crash-recovery story real (the service can re-submit the same charge and not
+  double-charge).
+- *A 500 or 422 stores nothing* — it is not a completed charge, so a retry gets a
+  fresh decision. `tok_network_error` therefore fails again on retry;
+  `tok_timeout` succeeds on the stored replay.
+- *The `tok_timeout` delay is env-tunable* (`MOCK_PSP_TIMEOUT_MS`) so the
+  PSP-failure integration test doesn't have to wait 30 real seconds.
+- *In-memory only* — not durable across restarts. Fine for a mock; it isn't
+  pretending to be a production PSP.
+- *One route.* Reconciliation re-submits `POST /charge`; there is deliberately no
+  `GET /charge/:id`.
+
+**Verified** (curl)
+Each token returns its documented shape and status (`200` succeeded/failed,
+`422` unknown token, `500` network error). Replaying a key returns the identical
+`psp_ref` with no delay — including `tok_timeout`, which sleeps once (~800ms with
+the test delay) then replays in ~90ms. `/_debug/charges` lists the four stored
+charges; the `tok_network_error` key is absent.
+
+---
+
 ### Dev tooling — local Postgres helper  (`99f546f`)
 
 Not part of the plan. `scripts/pg-dev.sh` runs a throwaway Postgres in

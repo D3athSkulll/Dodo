@@ -18,6 +18,7 @@ Keyed by commit subject (`git log --oneline`), since hashes shift on rebase.
 
 | Commit | Added |
 |--------|-------|
+| add mock PSP | `crates/mock-psp`: `POST /charge` with deterministic per-token outcomes (`tok_success`, `tok_insufficient_funds`, `tok_card_declined`, `tok_timeout`, `tok_network_error`), idempotent on `idempotency_key`, plus `GET /_debug/charges`. Delays tunable via `MOCK_PSP_DELAY_MS` / `MOCK_PSP_TIMEOUT_MS`. |
 | add invoices and invoice state machine | `POST/GET/LIST /v1/invoices` with server-computed totals, `state` filter, `POST .../void` and `.../mark-uncollectible`. State machine `open` → `paid`/`void`/`uncollectible` (all terminal), enforced by a conditional `UPDATE`. `invoice.created` written to the webhook outbox in the same transaction as the insert. |
 | add customers endpoints | `POST/GET/LIST /v1/customers`, business-scoped, keyset pagination with an opaque cursor. `/v1/*` now requires an API key. |
 | add local dev postgres helper | `scripts/pg-dev.sh` — throwaway local Postgres (port 5433) for running the service without Docker. |
